@@ -4,7 +4,7 @@ import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.cluster.ClusterEvent.MemberUp
 import org.apache.pekko.cluster.ddata.{LWWMap, ORSet}
 import org.apache.pekko.cluster.ddata.Replicator.UpdateResponse
-import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.GetResponse
+import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{GetResponse, SubscribeResponse}
 import org.apache.pekko.util.ByteString
 
 import java.nio.file.Path
@@ -25,26 +25,25 @@ object FileProtocol {
 
   final case class FileSaveFailed(fileName: String, reason: String) extends Command
 
-  sealed trait InternalCommand_ extends Command;
+  sealed trait InternalCommand_ extends Command
 
-  final case class InternalMemUp_(upEvent: MemberUp) extends InternalCommand_;
+  final case class InternalMemUp_(upEvent: MemberUp) extends InternalCommand_
 
-  final case class InternalKeyUpdate_(upEvent: UpdateResponse[LWWMap[String, ORSet[String]]]) extends InternalCommand_;
+  final case class InternalSubscribeReplicator_(upEvent: SubscribeResponse[LWWMap[String, ORSet[String]]]) extends InternalCommand_
 
-  final case class InternalGetRequest_(req: GetResponse[?]) extends InternalCommand_;
+  final case class InternalKeyUpdate_(upEvent: UpdateResponse[LWWMap[String, ORSet[String]]]) extends InternalCommand_
 
   final case class InternalListRequest_(response: GetResponse[LWWMap[String, ORSet[String]]],
-                                        replyTo: ActorRef[AvailableFiles]) extends InternalCommand_;
+                                        replyTo: ActorRef[AvailableFiles]) extends InternalCommand_
 
   final case class InternalFileRequest_(response: GetResponse[LWWMap[String, ORSet[String]]],
                                         fileName: String,
-                                        replyTo: ActorRef[FileTransferStatus]) extends InternalCommand_;
+                                        replyTo: ActorRef[FileTransferStatus]) extends InternalCommand_
 
 
   sealed trait Response
 
-  final case class AvailableFiles(files: Map[String, Set[String]]) extends Response // Map: fileName -> Set[nodeAddress]
-
+  final case class AvailableFiles(files: Map[String, Set[String]]) extends Response
 
   sealed trait FileTransferStatus extends Response
 
@@ -67,6 +66,4 @@ object FileProtocol {
 
   final case class FileTransferError(fileName: String, reason: String) extends FileDataMessage
 
-
-  final case class ActiveTransfer(fileName: String, senderNode: String, receiverNode: String)
 }

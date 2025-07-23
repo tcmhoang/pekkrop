@@ -1,5 +1,4 @@
 val PekkoVersion = "1.1.5"
-val PekkoHttpVersion = "1.2.0"
 
 
 ThisBuild / version := "0.1.0-SNAPSHOT"
@@ -13,8 +12,7 @@ lazy val root = (project in file("."))
     libraryDependencies ++= Seq(
       "org.apache.pekko" %% "pekko-actor-typed" % PekkoVersion,
       "org.apache.pekko" %% "pekko-cluster-typed" % PekkoVersion,
-      "org.apache.pekko" %% "pekko-http" % PekkoHttpVersion
-
+      "ch.qos.logback" % "logback-classic" % "1.5.18"
     ),
     run / fork := false,
     Global / cancelable := false,

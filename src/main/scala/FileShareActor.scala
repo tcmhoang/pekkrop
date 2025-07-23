@@ -39,11 +39,9 @@ object FileShareActor {
     Cluster(context.system).subscriptions ! Subscribe(memUpAdapter, classOf[MemberUp])
 
     val replicatorAdapter =
-      context.messageAdapter[SubscribeResponse[LWWMap[String, ORSet[String]]]]({
-        case ins: UpdateResponse[LWWMap[String, ORSet[String]]] => InternalKeyUpdate_(ins)
-      })
+      context.messageAdapter[SubscribeResponse[LWWMap[String, ORSet[String]]]](InternalSubscribeReplicator_.apply)
 
-    val replicatorUpdateAdapter = context.messageAdapter[UpdateResponse[LWWMap[String, ORSet[String]]]](InternalKeyUpdate_.apply);
+
     replicator ! Replicator.Subscribe(AvailableFilesKey, replicatorAdapter)
 
 
@@ -54,29 +52,27 @@ object FileShareActor {
           localFiles += (fileName -> filePath)
           context.log.info(s"Registered local file: $fileName at $filePath")
 
-          val getResponseAdapter: ActorRef[Replicator.GetResponse[_]] =
-            context.messageAdapter(InternalGetRequest_.apply)
-
+          val replicatorUpdateAdapter = context.messageAdapter[UpdateResponse[LWWMap[String, ORSet[String]]]](InternalKeyUpdate_.apply)
           replicator ! Replicator.Update(
             AvailableFilesKey,
             LWWMap.empty[String, ORSet[String]],
             WriteLocal,
             replyTo = replicatorUpdateAdapter
-          )(_ :+ (fileName -> (ORSet.empty[String] :+ (node.uniqueAddress.address.hostPort))))
+          )(_ :+ (fileName -> (ORSet.empty[String] :+ node.uniqueAddress.address.hostPort)))
         } else {
           context.log.warn(s"Cannot register file: $filePath. It does not exist or is not readable.")
         }
         Behaviors.same
 
       case ListAvailableFiles(replyTo) =>
-        val listRequestAdapter = context.messageAdapter[Replicator.GetResponse[LWWMap[String, ORSet[String]]]](InternalListRequest_(_, replyTo));
+        val listRequestAdapter = context.messageAdapter[Replicator.GetResponse[LWWMap[String, ORSet[String]]]](InternalListRequest_(_, replyTo))
         replicator ! Replicator.Get(AvailableFilesKey, ReadLocal, listRequestAdapter)
         Behaviors.same
 
       case RequestFile(fileName, replyTo)
       =>
         context.log.info(s"Received request to download file: $fileName")
-        val fileReqAdapter = context.messageAdapter[Replicator.GetResponse[LWWMap[String, ORSet[String]]]](InternalFileRequest_(_, fileName, replyTo));
+        val fileReqAdapter = context.messageAdapter[Replicator.GetResponse[LWWMap[String, ORSet[String]]]](InternalFileRequest_(_, fileName, replyTo))
         replicator ! Get(AvailableFilesKey, ReadLocal, fileReqAdapter)
         Behaviors.same
 
@@ -96,13 +92,10 @@ object FileShareActor {
                 recipientActor ! FileChunk(fileName, chunk, sequenceNr, isLast = false)
               }
             ).onComplete {
-              case Success(IOResult(_, Success(_))) =>
+              case Success(_) =>
                 context.log.info(s"Successfully streamed file $fileName to $recipientNode")
-                recipientActor ! FileChunk(fileName, ByteString.empty, sequenceNr + 1, isLast = true) 
+                recipientActor ! FileChunk(fileName, ByteString.empty, sequenceNr + 1, isLast = true)
                 recipientActor ! FileTransferFinished(fileName)
-              case Success(IOResult(_, Failure(ex))) =>
-                context.log.error(s"Failed to stream file $fileName to $recipientNode: ${ex.getMessage}")
-                recipientActor ! FileTransferError(fileName, ex.getMessage)
               case Failure(ex) =>
                 context.log.error(s"Error in file streaming pipeline for $fileName to $recipientNode: ${ex.getMessage}")
                 recipientActor ! FileTransferError(fileName, ex.getMessage)
@@ -129,14 +122,6 @@ object FileShareActor {
         val (nextActiveDownloads, nextBehavior) = handleFileData(cmd, activeDownloads)
         activeDownloads = nextActiveDownloads
         nextBehavior
-      case MemberUp(mem)
-      =>
-        context.log.info(s"Node is UP: ${mem.address.hostPort}")
-        Behaviors.same
-
-      case other =>
-        context.log.debug(s"Received unexpected message: $other")
-        Behaviors.same
     }
   }
 
@@ -158,8 +143,10 @@ object FileShareActor {
           context.log.warn("Failed to retrieve available files from Distributed Data.")
           replyTo ! AvailableFiles(Map.empty)
           Behaviors.same
-        case Replicator.GetDataDeleted(key) => ???
-        case Replicator.NotFound(key) => ???
+        case other =>
+          context.log.warn("Got " + other)
+          Behaviors.stopped
+
 
     case InternalFileRequest_(resp, fileName, replyTo) =>
       resp match
@@ -173,7 +160,7 @@ object FileShareActor {
 
                   // Resolve the remote actor path and send a request to that actor
                   // TODO: Use typed
-                  val sys: ActorSystem = context.system.asInstanceOf[ActorSystem];
+                  val sys: ActorSystem = context.system.asInstanceOf[ActorSystem]
                   val path = RootActorPath(context.self.path.address.copy(host = Some(host), port = port.toIntOption), context.system.name)
                   val castedPath: ActorPath = path
                   val remoteActorPath = context.self.path.elements.foldLeft[ActorPath](castedPath)(_.child(_))
@@ -190,6 +177,7 @@ object FileShareActor {
                       context.log.error(s"Failed to resolve remote actor for $fileName on $hostNodeAddress: ${ex.getMessage}")
                       replyTo ! FileTransferFailed(fileName, s"Could not connect to host node: ${ex.getMessage}")
                   }
+                case _ => Behaviors.stopped
               }
 
             case _ =>
@@ -202,22 +190,27 @@ object FileShareActor {
           context.log.warn(s"Failed to retrieve available files from Distributed Data for $fileName.")
           replyTo ! FileNotAvailable(fileName)
           Behaviors.same
-        case Replicator.NotFound(key) => ???
-        case Replicator.GetDataDeleted(key) => ???
+        case _ => Behaviors.stopped
 
-    
+
     case InternalKeyUpdate_(e) =>
       context.log.debug(s"Distributed Data updated for AvailableFilesKey: ${e.key}")
       Behaviors.same
+    case InternalSubscribeReplicator_(e) =>
+      e match
+        case c@Changed(key) =>
+          val data = c.get(key)
+          context.log.debug(s"Distributed Data Changed for AvailableFilesKey: ${data.entries}")
+          Behaviors.same
+        case _ => Behaviors.same
 
-    case c
-      @Changed(AvailableFilesKey) =>
-      val data = c.get(AvailableFilesKey)
-      context.log.debug(s"Distributed Data Changed for AvailableFilesKey: ${data.entries}")
+    case InternalMemUp_(e) =>
+      context.log.info(s"Node is UP: ${e.member.address.hostPort}")
       Behaviors.same
+
   }
 
-  def handleFileData(cmd: FileDataMessage, state: Map[String, ActorRef[FileDataMessage]])(implicit context: ActorContext[Command], material: Materializer, ec: ExecutionContext): (Map[String, ActorRef[FileDataMessage]], Behavior[Command]) =
+  private def handleFileData(cmd: FileDataMessage, state: Map[String, ActorRef[FileDataMessage]])(implicit context: ActorContext[Command], material: Materializer, ec: ExecutionContext): (Map[String, ActorRef[FileDataMessage]], Behavior[Command]) =
     var activeDownloads = state
     cmd match
       // File Data Messages (received by this actor when it's the receiver)
@@ -226,9 +219,9 @@ object FileShareActor {
         context.log.info(s"Starting download of file: $fileName (size: $fileSize bytes)")
         // Create a temporary file to write to
         val tempFilePath = Paths.get(s"downloaded_files/$fileName.tmp")
-        Files.createDirectories(tempFilePath.getParent) 
-        if (Files.exists(tempFilePath)) Files.delete(tempFilePath) 
-        Files.createFile(tempFilePath) 
+        Files.createDirectories(tempFilePath.getParent)
+        if (Files.exists(tempFilePath)) Files.delete(tempFilePath)
+        Files.createFile(tempFilePath)
 
         val sink = FileIO.toPath(tempFilePath, Set(StandardOpenOption.APPEND))
         activeDownloads += (fileName -> context.self) // Mark as active download
