@@ -31,9 +31,7 @@ object FileShareActor {
     implicit val materializer: Materializer = Materializer(context.system)
 
 
-    var localFiles: Map[String, Path] = Map.empty // fileName -> localPath
-    var activeDownloads: Map[String, ActorRef[FileDataMessage]] = Map.empty // fileName -> senderRef
-    var activeUploads: Map[String, ActorRef[FileDataMessage]] = Map.empty // fileName -> receiverRef
+    var localFiles: Map[String, Path] = Map.empty
 
     val memUpAdapter = context.messageAdapter[MemberUp](InternalMemUp_.apply)
     Cluster(context.system).subscriptions ! Subscribe(memUpAdapter, classOf[MemberUp])
@@ -86,6 +84,7 @@ object FileShareActor {
 
             val source = FileIO.fromPath(filePath)
             var sequenceNr = 0L
+            val logger = context.log
             source.runWith(
               Sink.foreach[ByteString] { chunk =>
                 sequenceNr += 1
@@ -93,11 +92,11 @@ object FileShareActor {
               }
             ).onComplete {
               case Success(_) =>
-                context.log.info(s"Successfully streamed file $fileName to $recipientNode")
+                logger.info(s"Successfully streamed file $fileName to $recipientNode")
                 recipientActor ! FileChunk(fileName, ByteString.empty, sequenceNr + 1, isLast = true)
                 recipientActor ! FileTransferFinished(fileName)
               case Failure(ex) =>
-                context.log.error(s"Error in file streaming pipeline for $fileName to $recipientNode: ${ex.getMessage}")
+                logger.error(s"Error in file streaming pipeline for $fileName to $recipientNode: ${ex.getMessage}")
                 recipientActor ! FileTransferError(fileName, ex.getMessage)
             }
           case None =>
@@ -119,9 +118,7 @@ object FileShareActor {
 
       case cmd: InternalCommand_ => handleInternalCommand(cmd)
       case cmd: FileDataMessage =>
-        val (nextActiveDownloads, nextBehavior) = handleFileData(cmd, activeDownloads)
-        activeDownloads = nextActiveDownloads
-        nextBehavior
+        handleFileData(cmd)
     }
   }
 
@@ -155,23 +152,24 @@ object FileShareActor {
             case Some(nodesSet) if nodesSet.elements.nonEmpty =>
               val hostNodeAddress = nodesSet.elements.head // TODO: implement a more sophisticated selection
               hostNodeAddress.split(":").toList match {
-                case host :: port :: Nil =>
+                case hostAndName :: port :: Nil =>
                   context.log.info(s"File $fileName found on node: $hostNodeAddress. Initiating download.")
-
+                  val host = hostAndName.split("@").tail.head
                   // Resolve the remote actor path and send a request to that actor
                   // TODO: Use typed
-                  val sys: ActorSystem = context.system.asInstanceOf[ActorSystem]
+                  val sys: ActorSystem = context.system.classicSystem
                   val path = RootActorPath(context.self.path.address.copy(host = Some(host), port = port.toIntOption), context.system.name)
                   val castedPath: ActorPath = path
                   val remoteActorPath = context.self.path.elements.foldLeft[ActorPath](castedPath)(_.child(_))
+                  val currentRef = context.self
 
                   context.log.info(s"Attempting to resolve remote actor: $remoteActorPath")
 
                   import scala.concurrent.duration._
                   sys.actorSelection(remoteActorPath).resolveOne(3.seconds).onComplete {
                     case Success(remoteActorRef) =>
-                      context.log.info(s"Resolved remote actor: $remoteActorRef. Sending SendFileTo command.")
-                      remoteActorRef ! SendFileTo(fileName, node.uniqueAddress.address.hostPort, context.self)
+                      sys.log.info(s"Resolved remote actor: $remoteActorRef. Sending SendFileTo command.")
+                      remoteActorRef ! SendFileTo(fileName, node.uniqueAddress.address.hostPort, currentRef)
                       replyTo ! FileTransferInitiated(fileName)
                     case Failure(ex) =>
                       context.log.error(s"Failed to resolve remote actor for $fileName on $hostNodeAddress: ${ex.getMessage}")
@@ -210,65 +208,63 @@ object FileShareActor {
 
   }
 
-  private def handleFileData(cmd: FileDataMessage, state: Map[String, ActorRef[FileDataMessage]])(implicit context: ActorContext[Command], material: Materializer, ec: ExecutionContext): (Map[String, ActorRef[FileDataMessage]], Behavior[Command]) =
-    var activeDownloads = state
+  private def handleFileData(cmd: FileDataMessage)(implicit context: ActorContext[Command], material: Materializer, ec: ExecutionContext): Behavior[Command] =
     cmd match
       // File Data Messages (received by this actor when it's the receiver)
       case FileTransferStart(fileName, fileSize)
       =>
         context.log.info(s"Starting download of file: $fileName (size: $fileSize bytes)")
         // Create a temporary file to write to
-        val tempFilePath = Paths.get(s"downloaded_files/$fileName.tmp")
+        val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
         Files.createDirectories(tempFilePath.getParent)
         if (Files.exists(tempFilePath)) Files.delete(tempFilePath)
         Files.createFile(tempFilePath)
 
         val sink = FileIO.toPath(tempFilePath, Set(StandardOpenOption.APPEND))
-        activeDownloads += (fileName -> context.self) // Mark as active download
-        (activeDownloads, Behaviors.same)
+        Behaviors.same
 
       case FileChunk(fileName, chunk, sequenceNr, isLast)
       =>
-        val tempFilePath = Paths.get(s"downloaded_files/$fileName.tmp")
+        val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
         if (Files.exists(tempFilePath)) {
           val futureWrite = Source.single(chunk).runWith(FileIO.toPath(tempFilePath, Set(StandardOpenOption.APPEND)))
+          val logger = context.log
+          val self = context.self
+          val port = context.system.address.port.get
           futureWrite.onComplete {
             case Success(_) =>
-              context.log.debug(s"Written chunk $sequenceNr for $fileName")
+              logger.debug(s"Written chunk $sequenceNr for $fileName")
               if (isLast) {
-                context.log.info(s"Received last chunk for $fileName. Finalizing transfer.")
-                val finalPath = Paths.get(s"downloaded_files/$fileName")
+                logger.info(s"Received last chunk for $fileName. Finalizing transfer.")
+                val finalPath = Paths.get(s"downloaded_files_${port}/$fileName")
                 try {
                   Files.move(tempFilePath, finalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                  context.log.info(s"File $fileName successfully downloaded and saved to $finalPath")
-                  activeDownloads -= fileName
-                  context.self ! RegisterFile(finalPath)
+                  logger.info(s"File $fileName successfully downloaded and saved to $finalPath")
+                  self ! RegisterFile(finalPath)
                 } catch {
                   case ex: Exception =>
-                    context.log.error(s"Failed to move temporary file for $fileName: ${ex.getMessage}")
-                    context.self ! FileSaveFailed(fileName, ex.getMessage)
+                    logger.error(s"Failed to move temporary file for $fileName: ${ex.getMessage}")
+                    self ! FileSaveFailed(fileName, ex.getMessage)
                 }
               }
             case Failure(ex) =>
-              context.log.error(s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}")
-              context.self ! FileSaveFailed(fileName, ex.getMessage)
+              logger.error(s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}")
+              self ! FileSaveFailed(fileName, ex.getMessage)
           }
         } else {
           context.log.error(s"Temporary file for $fileName not found. Cannot write chunk.")
-          activeDownloads -= fileName
         }
-        (activeDownloads, Behaviors.same)
+        Behaviors.same
 
       case FileTransferFinished(fileName)
       =>
         context.log.info(s"File transfer for $fileName completed by sender.")
-        (activeDownloads, Behaviors.same)
+        Behaviors.same
 
       case FileTransferError(fileName, reason)
       =>
         context.log.error(s"File transfer for $fileName failed: $reason")
-        activeDownloads -= fileName
-        val tempFilePath = Paths.get(s"downloaded_files/$fileName.tmp")
+        val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
         if (Files.exists(tempFilePath)) {
           try {
             Files.delete(tempFilePath)
@@ -277,7 +273,7 @@ object FileShareActor {
             case ex: Exception => context.log.warn(s"Failed to delete temporary file for $fileName: ${ex.getMessage}")
           }
         }
-        (activeDownloads, Behaviors.same)
+        Behaviors.same
 
 
 }

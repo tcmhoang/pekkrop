@@ -4,6 +4,7 @@ import model.FileProtocol.{AvailableFiles, ListAvailableFiles, RegisterFile, Req
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.util.Timeout
+import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success}
 import java.nio.file.{Files, Paths}
@@ -11,9 +12,6 @@ import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.io.StdIn
 import scala.util.CommandLineParser
 import scala.util.CommandLineParser.FromString
-import ch.qos.logback.classic.LoggerContext
-import org.slf4j.LoggerFactory
-import ch.qos.logback.classic.joran.JoranConfigurator
 
 given FromString[Array[String]] with
   def fromString(s: String): Array[String] =
@@ -23,10 +21,14 @@ given FromString[Array[String]] with
 def main(args: Array[String]): Unit = {
   val port = if (args.nonEmpty) args(0).toInt else 0
 
+  /*
   val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
   val configurator = new JoranConfigurator()
   configurator.setContext(loggerContext)
   loggerContext.reset()
+  */
+
+  LoggerFactory.getLogger(this.getClass).debug("SLF4J initialized early.")
 
 
   val config = ConfigFactory.parseString(
@@ -45,19 +47,19 @@ def main(args: Array[String]): Unit = {
 
   implicit val scheduler: Scheduler = system.scheduler
 
-  Files.createDirectories(Paths.get("downloaded_files"))
+  Files.createDirectories(Paths.get(s"downloaded_files_$port"))
   system.log.info(s"Pekkrop Node started on port $port")
+  var running = true
+  system.whenTerminated.onComplete { _ =>
+    println("System terminated")
+    running = false
+  }
 
   sys.addShutdownHook {
     println("Shutting down system...")
-    system.terminate()
-    system.whenTerminated.onComplete { _ =>
-      println("System terminated")
-    }
   }
 
   Future {
-    var running = true
     while (running) {
       println(s"\nNode ${system.address}: Enter command (register <filepath>, list, request <filename>, exit):")
       val input = StdIn.readLine()
@@ -89,7 +91,7 @@ def main(args: Array[String]): Unit = {
             case Success(status) =>
               status match
                 case FileProtocol.FileTransferInitiated(name) =>
-                  println(s"File transfer initiated for $name. Check 'downloaded_files' directory.")
+                  println(s"File transfer initiated for $name. Check 'downloaded_files_${port}' directory.")
                 case FileProtocol.FileTransferCompleted(name, path) =>
                   println(s"File $name successfully downloaded to $path.")
                 case FileProtocol.FileTransferFailed(name, reason) =>
