@@ -56,7 +56,7 @@ object FileShareActor {
             LWWMap.empty[String, ORSet[String]],
             WriteLocal,
             replyTo = replicatorUpdateAdapter
-          )(_ :+ (fileName -> (ORSet.empty[String] :+ node.uniqueAddress.address.hostPort)))
+          )(old => old :+ (fileName -> (old.get(fileName).getOrElse(ORSet.empty[String]) :+ node.uniqueAddress.address.hostPort)))
         } else {
           context.log.warn(s"Cannot register file: $filePath. It does not exist or is not readable.")
         }
