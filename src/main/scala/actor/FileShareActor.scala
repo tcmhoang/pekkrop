@@ -107,10 +107,11 @@ object FileShareActor {
           }
           replyTo ! AvailableFiles(filesMap)
           Behaviors.same
-        case Replicator.GetFailure(key) =>
+        case _: Replicator.GetFailure[_] | _: Replicator.NotFound[_] =>
           context.log.warn("Failed to retrieve available files from Distributed Data.")
           replyTo ! AvailableFiles(Map.empty)
           Behaviors.same
+
         case other =>
           context.log.warn("Got " + other)
           Behaviors.stopped
@@ -165,6 +166,7 @@ object FileShareActor {
     case InternalKeyUpdate_(e) =>
       context.log.debug(s"Distributed Data updated for AvailableFilesKey: ${e.key}")
       Behaviors.same
+
     case InternalSubscribeReplicator_(e) =>
       e match
         case c@Changed(key) =>
