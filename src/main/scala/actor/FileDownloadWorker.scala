@@ -2,12 +2,12 @@ package actor
 
 import model.ShareProtocol.{FileSaveFailed, RegisterFile}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
-import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Source}
 
 import java.nio.file.{Files, Paths, StandardOpenOption}
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
+import scala.concurrent.ExecutionContextExecutor
 import scala.util.{Failure, Success, Try}
 import model.ShareProtocol.Command
 
@@ -49,11 +49,11 @@ object FileDownloadWorker {
                 if (isLast) {
                   logger.info(s"Received last chunk for $fileName. Finalizing transfer.")
                   val finalPath = Paths.get(s"downloaded_files_$port/$fileName")
-                  try {
+                  Try {
                     Files.move(tempFilePath, finalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     logger.info(s"File $fileName successfully downloaded and saved to $finalPath")
                     self ! FileDownloadFinished(finalPath.toString)
-                  } catch {
+                  } recover {
                     case ex: Exception =>
                       logger.error(s"Failed to move temporary file for $fileName: ${ex.getMessage}")
                       self ! FileDownloadError(fileName, ex.getMessage)
@@ -79,10 +79,10 @@ object FileDownloadWorker {
           context.log.error(s"File transfer for $fileName failed: $reason")
           val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
           if (Files.exists(tempFilePath)) {
-            try {
+            Try {
               Files.delete(tempFilePath)
               context.log.info(s"Cleaned up temporary file for $fileName.")
-            } catch {
+            } recover {
               case ex: Exception => context.log.warn(s"Failed to delete temporary file for $fileName: ${ex.getMessage}")
             }
           }

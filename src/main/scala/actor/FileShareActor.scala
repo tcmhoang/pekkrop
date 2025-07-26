@@ -9,11 +9,11 @@ import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.*
 import org.apache.pekko.cluster.ddata.typed.scaladsl.{DistributedData, Replicator}
 import org.apache.pekko.cluster.ddata.{LWWMap, LWWMapKey, ORSet, SelfUniqueAddress}
 import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
-import org.apache.pekko.stream.scaladsl.{FileIO, Sink, Source}
-import org.apache.pekko.stream.{IOResult, Materializer}
+import org.apache.pekko.stream.scaladsl.{FileIO, Sink}
+import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
 
-import java.nio.file.{Files, Path, Paths, StandardOpenOption}
+import java.nio.file.{Files, Path}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
 import scala.util.{Failure, Success}
 
