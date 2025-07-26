@@ -9,7 +9,7 @@ import org.apache.pekko.util.ByteString
 
 import java.nio.file.Path
 
-object FileProtocol {
+object ShareProtocol {
 
   sealed trait Command
 
@@ -19,7 +19,7 @@ object FileProtocol {
 
   final case class RequestFile(fileName: String, replyTo: ActorRef[FileTransferStatus]) extends Command
 
-  final case class SendFileTo(fileName: String, recipientNode: String, recipientActor: ActorRef[Command]) extends Command
+  final case class SendFileTo(fileName: String, recipientNode: String, recipientActor: ActorRef[TransferProtocol.FileDownloadCommand]) extends Command
 
   final case class FileSaved(fileName: String, filePath: Path) extends Command
 
@@ -56,14 +56,20 @@ object FileProtocol {
   final case class FileNotAvailable(fileName: String) extends FileTransferStatus
 
 
-  sealed trait FileDataMessage extends Command
+}
 
-  final case class FileChunk(fileName: String, chunk: ByteString, sequenceNr: Long, isLast: Boolean) extends FileDataMessage
+object TransferProtocol {
 
-  final case class FileTransferStart(fileName: String, fileSize: Long) extends FileDataMessage
+  import model.ShareProtocol.Command
 
-  final case class FileTransferFinished(fileName: String) extends FileDataMessage
+  sealed trait FileDownloadCommand
 
-  final case class FileTransferError(fileName: String, reason: String) extends FileDataMessage
+  final case class DownloadChunk(fileName: String, chunk: ByteString, sequenceNr: Long, isLast: Boolean) extends FileDownloadCommand
+
+  final case class FileDownloadStart(fileName: String, fileSize: Long) extends FileDownloadCommand
+
+  final case class FileDownloadFinished(fileName: String) extends FileDownloadCommand
+
+  final case class FileDownloadError(fileName: String, reason: String) extends FileDownloadCommand
 
 }

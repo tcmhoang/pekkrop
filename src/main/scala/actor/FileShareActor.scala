@@ -1,13 +1,16 @@
-import org.apache.pekko.actor.{ActorPath, ActorSystem, RootActorPath}
+package actor
+
+import model.TransferProtocol.{DownloadChunk, FileDownloadStart}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.{ActorPath, ActorSystem, RootActorPath}
 import org.apache.pekko.cluster.ClusterEvent.MemberUp
-import org.apache.pekko.cluster.ddata.typed.scaladsl.{DistributedData, Replicator}
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.*
-import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
+import org.apache.pekko.cluster.ddata.typed.scaladsl.{DistributedData, Replicator}
 import org.apache.pekko.cluster.ddata.{LWWMap, LWWMapKey, ORSet, SelfUniqueAddress}
-import org.apache.pekko.stream.{IOResult, Materializer}
+import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
 import org.apache.pekko.stream.scaladsl.{FileIO, Sink, Source}
+import org.apache.pekko.stream.{IOResult, Materializer}
 import org.apache.pekko.util.ByteString
 
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
@@ -16,7 +19,7 @@ import scala.util.{Failure, Success}
 
 object FileShareActor {
 
-  import model.FileProtocol._
+  import model.ShareProtocol.*
 
 
   // File -> Node addr
@@ -25,11 +28,13 @@ object FileShareActor {
   def apply(): Behavior[Command] = Behaviors.setup { context =>
     given ActorContext[Command] = context
 
-    implicit val node: SelfUniqueAddress = DistributedData(context.system).selfUniqueAddress
-    val replicator = DistributedData(context.system).replicator
-    implicit val ec: ExecutionContextExecutor = context.system.executionContext
-    implicit val materializer: Materializer = Materializer(context.system)
+    given node: SelfUniqueAddress = DistributedData(context.system).selfUniqueAddress
 
+    given ExecutionContextExecutor = context.system.executionContext
+
+    given Materializer = Materializer(context.system)
+
+    val replicator = DistributedData(context.system).replicator
 
     var localFiles: Map[String, Path] = Map.empty
 
@@ -80,7 +85,7 @@ object FileShareActor {
           case Some(filePath) =>
             context.log.info(s"Initiating transfer of $fileName to $recipientNode")
             val fileSize = Files.size(filePath)
-            recipientActor ! FileTransferStart(fileName, fileSize) // Notify recipient of start
+            recipientActor ! FileDownloadStart(fileName, fileSize)
 
             val source = FileIO.fromPath(filePath)
             var sequenceNr = 0L
@@ -88,21 +93,17 @@ object FileShareActor {
             source.runWith(
               Sink.foreach[ByteString] { chunk =>
                 sequenceNr += 1
-                recipientActor ! FileChunk(fileName, chunk, sequenceNr, isLast = false)
+                recipientActor ! DownloadChunk(fileName, chunk, sequenceNr, isLast = false)
               }
             ).onComplete {
               case Success(_) =>
                 logger.info(s"Successfully streamed file $fileName to $recipientNode")
-                recipientActor ! FileChunk(fileName, ByteString.empty, sequenceNr + 1, isLast = true)
-                recipientActor ! FileTransferFinished(fileName)
+                recipientActor ! DownloadChunk(fileName, ByteString.empty, sequenceNr + 1, isLast = true)
               case Failure(ex) =>
                 logger.error(s"Error in file streaming pipeline for $fileName to $recipientNode: ${ex.getMessage}")
-                recipientActor ! FileTransferError(fileName, ex.getMessage)
             }
           case None =>
             context.log.warn(s"Requested file $fileName not found locally for sending.")
-          // No direct way to tell the original requester, but the recipient might time out or get an error.
-          // TODO: send an error back to the requester.
         }
         Behaviors.same
 
@@ -117,8 +118,6 @@ object FileShareActor {
         Behaviors.same
 
       case cmd: InternalCommand_ => handleInternalCommand(cmd)
-      case cmd: FileDataMessage =>
-        handleFileData(cmd)
     }
   }
 
@@ -161,15 +160,15 @@ object FileShareActor {
                   val path = RootActorPath(context.self.path.address.copy(host = Some(host), port = port.toIntOption), context.system.name)
                   val castedPath: ActorPath = path
                   val remoteActorPath = context.self.path.elements.foldLeft[ActorPath](castedPath)(_.child(_))
-                  val currentRef = context.self
+                  val workerRef = context.spawnAnonymous(FileDownloadWorker(context.self))
 
                   context.log.info(s"Attempting to resolve remote actor: $remoteActorPath")
 
-                  import scala.concurrent.duration._
+                  import scala.concurrent.duration.*
                   sys.actorSelection(remoteActorPath).resolveOne(3.seconds).onComplete {
                     case Success(remoteActorRef) =>
                       sys.log.info(s"Resolved remote actor: $remoteActorRef. Sending SendFileTo command.")
-                      remoteActorRef ! SendFileTo(fileName, node.uniqueAddress.address.hostPort, currentRef)
+                      remoteActorRef ! SendFileTo(fileName, node.uniqueAddress.address.hostPort, workerRef)
                       replyTo ! FileTransferInitiated(fileName)
                     case Failure(ex) =>
                       context.log.error(s"Failed to resolve remote actor for $fileName on $hostNodeAddress: ${ex.getMessage}")
@@ -207,73 +206,6 @@ object FileShareActor {
       Behaviors.same
 
   }
-
-  private def handleFileData(cmd: FileDataMessage)(implicit context: ActorContext[Command], material: Materializer, ec: ExecutionContext): Behavior[Command] =
-    cmd match
-      // File Data Messages (received by this actor when it's the receiver)
-      case FileTransferStart(fileName, fileSize)
-      =>
-        context.log.info(s"Starting download of file: $fileName (size: $fileSize bytes)")
-        // Create a temporary file to write to
-        val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
-        Files.createDirectories(tempFilePath.getParent)
-        if (Files.exists(tempFilePath)) Files.delete(tempFilePath)
-        Files.createFile(tempFilePath)
-
-        val sink = FileIO.toPath(tempFilePath, Set(StandardOpenOption.APPEND))
-        Behaviors.same
-
-      case FileChunk(fileName, chunk, sequenceNr, isLast)
-      =>
-        val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
-        if (Files.exists(tempFilePath)) {
-          val futureWrite = Source.single(chunk).runWith(FileIO.toPath(tempFilePath, Set(StandardOpenOption.APPEND)))
-          val logger = context.log
-          val self = context.self
-          val port = context.system.address.port.get
-          futureWrite.onComplete {
-            case Success(_) =>
-              logger.debug(s"Written chunk $sequenceNr for $fileName")
-              if (isLast) {
-                logger.info(s"Received last chunk for $fileName. Finalizing transfer.")
-                val finalPath = Paths.get(s"downloaded_files_${port}/$fileName")
-                try {
-                  Files.move(tempFilePath, finalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                  logger.info(s"File $fileName successfully downloaded and saved to $finalPath")
-                  self ! RegisterFile(finalPath)
-                } catch {
-                  case ex: Exception =>
-                    logger.error(s"Failed to move temporary file for $fileName: ${ex.getMessage}")
-                    self ! FileSaveFailed(fileName, ex.getMessage)
-                }
-              }
-            case Failure(ex) =>
-              logger.error(s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}")
-              self ! FileSaveFailed(fileName, ex.getMessage)
-          }
-        } else {
-          context.log.error(s"Temporary file for $fileName not found. Cannot write chunk.")
-        }
-        Behaviors.same
-
-      case FileTransferFinished(fileName)
-      =>
-        context.log.info(s"File transfer for $fileName completed by sender.")
-        Behaviors.same
-
-      case FileTransferError(fileName, reason)
-      =>
-        context.log.error(s"File transfer for $fileName failed: $reason")
-        val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
-        if (Files.exists(tempFilePath)) {
-          try {
-            Files.delete(tempFilePath)
-            context.log.info(s"Cleaned up temporary file for $fileName.")
-          } catch {
-            case ex: Exception => context.log.warn(s"Failed to delete temporary file for $fileName: ${ex.getMessage}")
-          }
-        }
-        Behaviors.same
 
 
 }
