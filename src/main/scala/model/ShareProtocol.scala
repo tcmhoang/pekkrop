@@ -13,17 +13,17 @@ object ShareProtocol {
 
   sealed trait Command
 
-  final case class RegisterFile(filePath: Path) extends Command
+  final case class RegisterFile(file: Path) extends Command
 
   final case class ListAvailableFiles(replyTo: ActorRef[AvailableFiles]) extends Command
 
-  final case class RequestFile(fileName: String, replyTo: ActorRef[FileTransferStatus]) extends Command
+  final case class RequestFile(file: String, replyTo: ActorRef[FileTransferStatus]) extends Command
 
-  final case class SendFileTo(fileName: String, recipientNode: String, recipientActor: ActorRef[TransferProtocol.FileDownloadCommand]) extends Command
+  final case class FileSaved(file: String, filePath: Path) extends Command
 
-  final case class FileSaved(fileName: String, filePath: Path) extends Command
+  final case class FileSaveFailed(file: String, reason: String) extends Command
 
-  final case class FileSaveFailed(fileName: String, reason: String) extends Command
+  final case class SendFileTo(file: String, recipientId: String, downloadTo: ActorRef[DownloadProtocol.DownloadCommand]) extends Command
 
   sealed trait InternalCommand_ extends Command
 
@@ -37,7 +37,7 @@ object ShareProtocol {
                                         replyTo: ActorRef[AvailableFiles]) extends InternalCommand_
 
   final case class InternalFileRequest_(response: GetResponse[LWWMap[String, ORSet[String]]],
-                                        fileName: String,
+                                        file: String,
                                         replyTo: ActorRef[FileTransferStatus]) extends InternalCommand_
 
 
@@ -47,29 +47,36 @@ object ShareProtocol {
 
   sealed trait FileTransferStatus extends Response
 
-  final case class FileTransferInitiated(fileName: String) extends FileTransferStatus
+  final case class FileTransferInitiated(file: String) extends FileTransferStatus
 
-  final case class FileTransferCompleted(fileName: String, localPath: Path) extends FileTransferStatus
+  final case class FileTransferCompleted(file: String, localPath: Path) extends FileTransferStatus
 
-  final case class FileTransferFailed(fileName: String, reason: String) extends FileTransferStatus
+  final case class FileTransferFailed(file: String, reason: String) extends FileTransferStatus
 
-  final case class FileNotAvailable(fileName: String) extends FileTransferStatus
+  final case class FileNotAvailable(file: String) extends FileTransferStatus
 
 
 }
 
-object TransferProtocol {
+object DownloadProtocol {
 
-  import model.ShareProtocol.Command
+  sealed trait DownloadCommand
 
-  sealed trait FileDownloadCommand
+  final case class DownloadChunk(file: String, chunk: ByteString, sequenceNr: Long, isLast: Boolean) extends DownloadCommand
 
-  final case class DownloadChunk(fileName: String, chunk: ByteString, sequenceNr: Long, isLast: Boolean) extends FileDownloadCommand
+  final case class DownloadStart(file: String, fileSize: Long) extends DownloadCommand
 
-  final case class FileDownloadStart(fileName: String, fileSize: Long) extends FileDownloadCommand
+  final case class DownloadFinished(file: String) extends DownloadCommand
 
-  final case class FileDownloadFinished(fileName: String) extends FileDownloadCommand
+  final case class DownloadError(file: String, reason: String) extends DownloadCommand
 
-  final case class FileDownloadError(fileName: String, reason: String) extends FileDownloadCommand
+}
+
+
+object UploadProtocol {
+
+  sealed trait UploadCommand
+
+  final case class UploadFile(file: String, recipientId: String, downloadTo: ActorRef[DownloadProtocol.DownloadCommand]) extends UploadCommand
 
 }

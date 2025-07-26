@@ -13,10 +13,10 @@ import model.ShareProtocol.Command
 
 object FileDownloadWorker {
 
-  import model.TransferProtocol.*
+  import model.DownloadProtocol.*
 
 
-  def apply(replyTo: ActorRef[Command]): Behavior[FileDownloadCommand] = Behaviors.setup {
+  def apply(replyTo: ActorRef[Command]): Behavior[DownloadCommand] = Behaviors.setup {
 
     context =>
       given ExecutionContextExecutor = context.system.executionContext
@@ -24,7 +24,7 @@ object FileDownloadWorker {
       given Materializer = Materializer(context.system)
 
       Behaviors.receiveMessage {
-        case FileDownloadStart(fileName, fileSize)
+        case DownloadStart(fileName, fileSize)
         =>
           context.log.info(s"Starting download of file: $fileName (size: $fileSize bytes)")
           val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
@@ -38,7 +38,9 @@ object FileDownloadWorker {
         case DownloadChunk(fileName, chunk, sequenceNr, isLast)
         =>
           val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
-          if (Files.exists(tempFilePath)) {
+          if !Files.exists(tempFilePath) then
+            context.log.error(s"Temporary file for $fileName not found. Cannot write chunk.")
+          else
             val futureWrite = Source.single(chunk).runWith(FileIO.toPath(tempFilePath, Set(StandardOpenOption.APPEND)))
             val logger = context.log
             val self = context.self
@@ -52,39 +54,34 @@ object FileDownloadWorker {
                   Try {
                     Files.move(tempFilePath, finalPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                     logger.info(s"File $fileName successfully downloaded and saved to $finalPath")
-                    self ! FileDownloadFinished(finalPath.toString)
+                    self ! DownloadFinished(finalPath.toString)
                   } recover {
                     case ex: Exception =>
                       logger.error(s"Failed to move temporary file for $fileName: ${ex.getMessage}")
-                      self ! FileDownloadError(fileName, ex.getMessage)
+                      self ! DownloadError(fileName, ex.getMessage)
                   }
                 }
               case Failure(ex) =>
                 logger.error(s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}")
-                self ! FileDownloadError(fileName, ex.getMessage)
+                self ! DownloadError(fileName, ex.getMessage)
             }
-          } else {
-            context.log.error(s"Temporary file for $fileName not found. Cannot write chunk.")
-          }
           Behaviors.same
 
-        case FileDownloadFinished(path)
+        case DownloadFinished(path)
         =>
           context.log.info(s"File transfer for $path completed by sender.")
           replyTo ! RegisterFile(Paths.get(path))
           Behaviors.stopped
 
-        case FileDownloadError(fileName, reason)
+        case DownloadError(fileName, reason)
         =>
           context.log.error(s"File transfer for $fileName failed: $reason")
           val tempFilePath = Paths.get(s"downloaded_files_${context.system.address.port.get}/$fileName.tmp")
-          if (Files.exists(tempFilePath)) {
-            Try {
-              Files.delete(tempFilePath)
-              context.log.info(s"Cleaned up temporary file for $fileName.")
-            } recover {
-              case ex: Exception => context.log.warn(s"Failed to delete temporary file for $fileName: ${ex.getMessage}")
-            }
+          if (Files.exists(tempFilePath)) Try {
+            Files.delete(tempFilePath)
+            context.log.info(s"Cleaned up temporary file for $fileName.")
+          } recover {
+            case ex: Exception => context.log.warn(s"Failed to delete temporary file for $fileName: ${ex.getMessage}")
           }
           replyTo ! FileSaveFailed(fileName, reason)
           Behaviors.stopped

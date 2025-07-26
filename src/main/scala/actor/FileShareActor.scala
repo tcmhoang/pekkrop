@@ -1,6 +1,5 @@
 package actor
 
-import model.TransferProtocol.{DownloadChunk, FileDownloadStart}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.{ActorPath, ActorSystem, RootActorPath}
@@ -9,9 +8,6 @@ import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.*
 import org.apache.pekko.cluster.ddata.typed.scaladsl.{DistributedData, Replicator}
 import org.apache.pekko.cluster.ddata.{LWWMap, LWWMapKey, ORSet, SelfUniqueAddress}
 import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
-import org.apache.pekko.stream.scaladsl.{FileIO, Sink}
-import org.apache.pekko.stream.Materializer
-import org.apache.pekko.util.ByteString
 
 import java.nio.file.{Files, Path}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
@@ -20,9 +16,9 @@ import scala.util.{Failure, Success}
 object FileShareActor {
 
   import model.ShareProtocol.*
+  import model.UploadProtocol.UploadFile
 
 
-  // File -> Node addr
   private val AvailableFilesKey = LWWMapKey.create[String, ORSet[String]]("available-files")
 
   def apply(): Behavior[Command] = Behaviors.setup { context =>
@@ -31,8 +27,6 @@ object FileShareActor {
     given node: SelfUniqueAddress = DistributedData(context.system).selfUniqueAddress
 
     given ExecutionContextExecutor = context.system.executionContext
-
-    given Materializer = Materializer(context.system)
 
     val replicator = DistributedData(context.system).replicator
 
@@ -81,30 +75,8 @@ object FileShareActor {
 
       case SendFileTo(fileName, recipientNode, recipientActor)
       =>
-        localFiles.get(fileName) match {
-          case Some(filePath) =>
-            context.log.info(s"Initiating transfer of $fileName to $recipientNode")
-            val fileSize = Files.size(filePath)
-            recipientActor ! FileDownloadStart(fileName, fileSize)
-
-            val source = FileIO.fromPath(filePath)
-            var sequenceNr = 0L
-            val logger = context.log
-            source.runWith(
-              Sink.foreach[ByteString] { chunk =>
-                sequenceNr += 1
-                recipientActor ! DownloadChunk(fileName, chunk, sequenceNr, isLast = false)
-              }
-            ).onComplete {
-              case Success(_) =>
-                logger.info(s"Successfully streamed file $fileName to $recipientNode")
-                recipientActor ! DownloadChunk(fileName, ByteString.empty, sequenceNr + 1, isLast = true)
-              case Failure(ex) =>
-                logger.error(s"Error in file streaming pipeline for $fileName to $recipientNode: ${ex.getMessage}")
-            }
-          case None =>
-            context.log.warn(s"Requested file $fileName not found locally for sending.")
-        }
+        val uploadWorker = context.spawnAnonymous(FileUploadWorker(localFiles))
+        uploadWorker ! UploadFile(fileName, recipientNode, recipientActor)
         Behaviors.same
 
       case FileSaved(fileName, filePath)
