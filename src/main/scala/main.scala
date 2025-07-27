@@ -1,7 +1,12 @@
 import actor.FileShareActor
 import com.typesafe.config.ConfigFactory
 import model.ShareProtocol
-import model.ShareProtocol.{AvailableFiles, ListAvailableFiles, RegisterFile, RequestFile}
+import model.ShareProtocol.{
+  AvailableFiles,
+  ListAvailableFiles,
+  RegisterFile,
+  RequestFile
+}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.util.Timeout
@@ -27,17 +32,16 @@ def main(args: Array[String]): Unit = {
   val configurator = new JoranConfigurator()
   configurator.setContext(loggerContext)
   loggerContext.reset()
-  */
+   */
 
   LoggerFactory.getLogger(this.getClass).debug("SLF4J initialized early.")
 
-
-  val config = ConfigFactory.parseString(
-    s"""
+  val config = ConfigFactory
+    .parseString(s"""
       pekko.remote.artery.canonical.port = $port
       pekko.remote.artery.canonical.hostname = "127.0.0.1"
-    """).withFallback(ConfigFactory.load())
-
+    """)
+    .withFallback(ConfigFactory.load())
 
   import scala.concurrent.duration._
   implicit val timeout: Timeout = Timeout(3.seconds)
@@ -62,7 +66,9 @@ def main(args: Array[String]): Unit = {
 
   Future {
     while (running) {
-      println(s"\nNode ${system.address}: Enter command (register <filepath>, list, request <filename>, exit):")
+      println(
+        s"\nNode ${system.address}: Enter command (register <filepath>, list, request <filename>, exit):"
+      )
       val input = StdIn.readLine()
 
       input.split(" ").toList match {
@@ -79,7 +85,9 @@ def main(args: Array[String]): Unit = {
               } else {
                 println("Available files in cluster:")
                 files.foreach { case (fileName, nodes) =>
-                  println(s"- $fileName (available on nodes: ${nodes.mkString(", ")})")
+                  println(
+                    s"- $fileName (available on nodes: ${nodes.mkString(", ")})"
+                  )
                 }
               }
             case Failure(ex) =>
@@ -92,7 +100,9 @@ def main(args: Array[String]): Unit = {
             case Success(status) =>
               status match
                 case ShareProtocol.FileTransferInitiated(name) =>
-                  println(s"File transfer initiated for $name. Check 'downloaded_files_$port' directory.")
+                  println(
+                    s"File transfer initiated for $name. Check 'downloaded_files_$port' directory."
+                  )
                 case ShareProtocol.FileTransferCompleted(name, path) =>
                   println(s"File $name successfully downloaded to $path.")
                 case ShareProtocol.FileTransferFailed(name, reason) =>
@@ -109,9 +119,10 @@ def main(args: Array[String]): Unit = {
           println(s"Node $port shutting down.")
 
         case _ =>
-          println("Unknown command. Please use 'register <filepath>', 'list', 'request <filename>', or 'exit'.")
+          println(
+            "Unknown command. Please use 'register <filepath>', 'list', 'request <filename>', or 'exit'."
+          )
       }
     }
   }
 }
-
