@@ -1,5 +1,7 @@
 package actor
 
+import org.apache.pekko.actor.typed.receptionist.Receptionist.Register
+import org.apache.pekko.actor.typed.receptionist.ServiceKey
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.{ActorPath, ActorSystem, RootActorPath}
@@ -23,6 +25,8 @@ object FileShareActor {
 
   def apply(): Behavior[Command] = Behaviors.setup {
     context =>
+      val key = ServiceKey[Command]("pekkrop")
+      context.system.receptionist ! Register(key, context.self)
       running();
   }
 
