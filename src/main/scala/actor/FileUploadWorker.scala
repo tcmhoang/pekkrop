@@ -7,7 +7,7 @@ import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Sink}
 import org.apache.pekko.util.ByteString
 
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 import scala.concurrent.ExecutionContextExecutor
 
 import java.nio.file.{Files, Path}

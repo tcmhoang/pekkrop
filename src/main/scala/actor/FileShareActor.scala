@@ -21,7 +21,12 @@ object FileShareActor {
 
   private val AvailableFilesKey = LWWMapKey.create[String, ORSet[String]]("available-files")
 
-  def apply(): Behavior[Command] = Behaviors.setup { context =>
+  def apply(): Behavior[Command] = Behaviors.setup {
+    context =>
+      running();
+  }
+
+  def running(localFiles: Map[String, Path] = Map.empty): Behavior[Command] = Behaviors.receive { (context, message) =>
     given ActorContext[Command] = context
 
     given node: SelfUniqueAddress = DistributedData(context.system).selfUniqueAddress
@@ -29,8 +34,6 @@ object FileShareActor {
     given ExecutionContextExecutor = context.system.executionContext
 
     val replicator = DistributedData(context.system).replicator
-
-    var localFiles: Map[String, Path] = Map.empty
 
     val memUpAdapter = context.messageAdapter[MemberUp](InternalMemUp_.apply)
     Cluster(context.system).subscriptions ! Subscribe(memUpAdapter, classOf[MemberUp])
@@ -42,11 +45,10 @@ object FileShareActor {
     replicator ! Replicator.Subscribe(AvailableFilesKey, replicatorAdapter)
 
 
-    Behaviors.receiveMessage {
+    message match {
       case RegisterFile(filePath) =>
         val fileName = filePath.getFileName.toString
         if (Files.exists(filePath) && Files.isReadable(filePath)) {
-          localFiles += (fileName -> filePath)
           context.log.info(s"Registered local file: $fileName at $filePath")
 
           val replicatorUpdateAdapter = context.messageAdapter[UpdateResponse[LWWMap[String, ORSet[String]]]](InternalKeyUpdate_.apply)
@@ -56,10 +58,12 @@ object FileShareActor {
             WriteLocal,
             replyTo = replicatorUpdateAdapter
           )(old => old :+ (fileName -> (old.get(fileName).getOrElse(ORSet.empty[String]) :+ node.uniqueAddress.address.hostPort)))
+
+          running(localFiles + (fileName -> filePath))
         } else {
           context.log.warn(s"Cannot register file: $filePath. It does not exist or is not readable.")
+          Behaviors.same
         }
-        Behaviors.same
 
       case ListAvailableFiles(replyTo) =>
         val listRequestAdapter = context.messageAdapter[Replicator.GetResponse[LWWMap[String, ORSet[String]]]](InternalListRequest_(_, replyTo))
