@@ -108,7 +108,13 @@ object FileShareActor {
           val fileReqAdapter = context.messageAdapter[Replicator.GetResponse[
             LWWMap[String, ORSet[String]]
           ]](InternalFileRequest_(_, fileName, replyTo))
-          replicator ! Get(AvailableFilesKey, ReadLocal, fileReqAdapter)
+          if localFiles.contains(fileName) then
+            context.log.warn(s"Already has file $fileName abort!")
+            replyTo ! FileTransferFailed(
+              fileName,
+              s"File $fileName already existed"
+            )
+          else replicator ! Get(AvailableFilesKey, ReadLocal, fileReqAdapter)
           Behaviors.same
 
         case SendFileTo(fileName, recipientNode, recipientActor) =>
