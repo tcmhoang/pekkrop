@@ -44,8 +44,6 @@ object FileShareActor {
 
     val replicatorAdapter =
       context.messageAdapter[SubscribeResponse[LWWMap[String, ORSet[String]]]](InternalSubscribeReplicator_.apply)
-
-
     replicator ! Replicator.Subscribe(AvailableFilesKey, replicatorAdapter)
 
 
@@ -97,12 +95,12 @@ object FileShareActor {
         context.log.error(s"Failed to save file $fileName: $reason")
         Behaviors.same
 
-      case cmd: InternalCommand_ => handleInternalCommand(cmd)
+      case cmd: InternalCommand_ => handleInternalCommand(cmd, replicator)
     }
   }
 
 
-  private def handleInternalCommand(replicatorCmd: InternalCommand_)(implicit context: ActorContext[Command], node: SelfUniqueAddress, ec: ExecutionContext
+  private def handleInternalCommand(replicatorCmd: InternalCommand_, replicator: ActorRef[Replicator.Command])(implicit context: ActorContext[Command], node: SelfUniqueAddress, ec: ExecutionContext
   ):
   Behavior[Command] = replicatorCmd match {
     // Distributed Data Replicator Responses
@@ -186,7 +184,19 @@ object FileShareActor {
     case InternalMemUp_(e) =>
       context.log.info(s"Node is UP: ${e.member.address.hostPort}")
       Behaviors.same
+    case InternalMemDown_(e) =>
+      context.log.info(s"Node is UP: ${e.member.address.hostPort}")
+      val replicatorUpdateAdapter = context.messageAdapter[UpdateResponse[LWWMap[String, ORSet[String]]]](InternalKeyUpdate_.apply)
+      replicator ! Replicator.Update(
+          AvailableFilesKey,
+          LWWMap.empty[String, ORSet[String]],
+          WriteLocal,
+          replicatorUpdateAdapter)
+        (old =>
+          old.entries.filter((k, s) => s.contains(e.member.address.hostPort)).toList.foldLeft(old)((m, keyWithSet) => m.put(node, keyWithSet._1, keyWithSet._2.remove(e.member.address.hostPort)))
+        )
 
+      Behaviors.same
   }
 
 
