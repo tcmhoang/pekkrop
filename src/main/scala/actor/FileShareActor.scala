@@ -5,7 +5,7 @@ import org.apache.pekko.actor.typed.receptionist.ServiceKey
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.{ActorPath, ActorSystem, RootActorPath}
-import org.apache.pekko.cluster.ClusterEvent.MemberUp
+import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.*
 import org.apache.pekko.cluster.ddata.typed.scaladsl.{
   DistributedData,
@@ -34,10 +34,35 @@ object FileShareActor {
   def apply(): Behavior[Command] = Behaviors.setup { context =>
     val key = ServiceKey[Command]("pekkrop")
     context.system.receptionist ! Register(key, context.self)
-    running();
+    val replicator = DistributedData(context.system).replicator
+
+    val memUpAdapter = context.messageAdapter[MemberUp](InternalMemUp_.apply)
+    Cluster(context.system).subscriptions ! Subscribe(
+      memUpAdapter,
+      classOf[MemberUp]
+    )
+
+    val memDownAdapter =
+      context.messageAdapter[MemberRemoved](InternalMemRm_.apply)
+    Cluster(context.system).subscriptions ! Subscribe(
+      memDownAdapter,
+      classOf[MemberRemoved]
+    )
+
+    val replicatorAdapter =
+      context
+        .messageAdapter[SubscribeResponse[LWWMap[String, ORSet[String]]]](
+          InternalSubscribeReplicator_.apply
+        )
+    replicator ! Replicator.Subscribe(AvailableFilesKey, replicatorAdapter)
+
+    running(replicator);
   }
 
-  def running(localFiles: Map[String, Path] = Map.empty): Behavior[Command] =
+  def running(
+      replicator: ActorRef[Replicator.Command],
+      localFiles: Map[String, Path] = Map.empty
+  ): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       given ActorContext[Command] = context
 
@@ -45,21 +70,6 @@ object FileShareActor {
         DistributedData(context.system).selfUniqueAddress
 
       given ExecutionContextExecutor = context.system.executionContext
-
-      val replicator = DistributedData(context.system).replicator
-
-      val memUpAdapter = context.messageAdapter[MemberUp](InternalMemUp_.apply)
-      Cluster(context.system).subscriptions ! Subscribe(
-        memUpAdapter,
-        classOf[MemberUp]
-      )
-
-      val replicatorAdapter =
-        context
-          .messageAdapter[SubscribeResponse[LWWMap[String, ORSet[String]]]](
-            InternalSubscribeReplicator_.apply
-          )
-      replicator ! Replicator.Subscribe(AvailableFilesKey, replicatorAdapter)
 
       message match {
         case RegisterFile(filePath) =>
@@ -84,7 +94,7 @@ object FileShareActor {
                 ) :+ node.uniqueAddress.address.hostPort))
             )
 
-            running(localFiles + (fileName -> filePath))
+            running(replicator, localFiles + (fileName -> filePath))
           } else {
             context.log.warn(
               s"Cannot register file: $filePath. It does not exist or is not readable."
@@ -256,7 +266,7 @@ object FileShareActor {
     case InternalMemUp_(e) =>
       context.log.info(s"Node is UP: ${e.member.address.hostPort}")
       Behaviors.same
-    case InternalMemDown_(e) =>
+    case InternalMemRm_(e) =>
       context.log.info(s"Node is UP: ${e.member.address.hostPort}")
       val replicatorUpdateAdapter =
         context.messageAdapter[UpdateResponse[LWWMap[String, ORSet[String]]]](

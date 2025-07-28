@@ -1,7 +1,7 @@
 package model
 
 import org.apache.pekko.actor.typed.ActorRef
-import org.apache.pekko.cluster.ClusterEvent.{MemberDowned, MemberUp}
+import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.ddata.{LWWMap, ORSet}
 import org.apache.pekko.cluster.ddata.Replicator.UpdateResponse
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{
@@ -40,7 +40,7 @@ object ShareProtocol {
 
   final case class InternalMemUp_(upEvent: MemberUp) extends InternalCommand_
 
-  final case class InternalMemDown_(upEvent: MemberDowned)
+  final case class InternalMemRm_(upEvent: MemberRemoved)
       extends InternalCommand_
 
   final case class InternalSubscribeReplicator_(
