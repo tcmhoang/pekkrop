@@ -24,8 +24,8 @@ given FromString[Array[String]] with
     s.split(',').map(_.trim).filter(_.nonEmpty)
 
 @main
-def main(args: Array[String]): Unit = {
-  val port = if (args.nonEmpty) args(0).toInt else 0
+def main(args: Array[String]): Unit =
+  val port = if args.nonEmpty then args(0).toInt else 0
 
   /*
   val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
@@ -55,48 +55,44 @@ def main(args: Array[String]): Unit = {
   Files.createDirectories(Paths.get(s"downloaded_files_$port"))
   system.log.info(s"Pekkrop Node started on port $port")
   var running = true
-  system.whenTerminated.onComplete { _ =>
+  system.whenTerminated.onComplete: _ =>
     println("System terminated")
     running = false
-  }
 
-  sys.addShutdownHook {
+  sys.addShutdownHook:
     println("Shutting down system...")
-  }
 
-  Future {
+  Future:
     while (running) {
       println(
         s"\nNode ${system.address}: Enter command (register <filepath>, list, request <filename>, exit):"
       )
       val input = StdIn.readLine()
 
-      input.split(" ").toList match {
+      input.split(" ").toList match
         case "register" :: filePathStr :: Nil =>
           val filePath = Paths.get(filePathStr)
           system ! RegisterFile(filePath)
           println(s"Attempting to register file: $filePath")
 
         case "list" :: Nil =>
-          (system ? ListAvailableFiles.apply).onComplete {
+          (system ? ListAvailableFiles.apply).onComplete:
             case Success(AvailableFiles(files)) =>
-              if (files.isEmpty) {
+              if files.isEmpty then
                 println("No files currently available in the cluster.")
-              } else {
+              else
                 println("Available files in cluster:")
-                files.foreach { case (fileName, nodes) =>
-                  println(
-                    s"- $fileName (available on nodes: ${nodes.mkString(", ")})"
-                  )
-                }
-              }
+                files.foreach:
+                  case (fileName, nodes) =>
+                    println(
+                      s"- $fileName (available on nodes: ${nodes.mkString(", ")})"
+                    )
             case Failure(ex) =>
               println(s"Failed to list files: ${ex.getMessage}")
-          }
 
         case "request" :: fileName :: Nil =>
           println(s"Requesting file: $fileName")
-          (system ? (RequestFile(fileName, _))).onComplete {
+          (system ? (RequestFile(fileName, _))).onComplete:
             case Success(status) =>
               status match
                 case ShareProtocol.FileTransferInitiated(name) =>
@@ -111,7 +107,6 @@ def main(args: Array[String]): Unit = {
                   println(s"File $name is not available in the cluster.")
             case Failure(ex) =>
               println(s"Error requesting file $fileName: ${ex.getMessage}")
-          }
 
         case "exit" :: Nil =>
           running = false
@@ -122,7 +117,4 @@ def main(args: Array[String]): Unit = {
           println(
             "Unknown command. Please use 'register <filepath>', 'list', 'request <filename>', or 'exit'."
           )
-      }
     }
-  }
-}

@@ -12,7 +12,7 @@ import org.apache.pekko.util.ByteString
 
 import java.nio.file.Path
 
-object ShareProtocol {
+object ShareProtocol:
 
   sealed trait Command
 
@@ -80,9 +80,7 @@ object ShareProtocol {
 
   final case class FileNotAvailable(file: String) extends FileTransferStatus
 
-}
-
-object DownloadProtocol {
+object DownloadProtocol:
 
   sealed trait DownloadCommand
 
@@ -101,9 +99,7 @@ object DownloadProtocol {
   final case class DownloadError(file: String, reason: String)
       extends DownloadCommand
 
-}
-
-object UploadProtocol {
+object UploadProtocol:
 
   sealed trait UploadCommand
 
@@ -112,5 +108,3 @@ object UploadProtocol {
       recipientId: String,
       downloadTo: ActorRef[DownloadProtocol.DownloadCommand]
   ) extends UploadCommand
-
-}

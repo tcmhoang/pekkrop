@@ -23,7 +23,7 @@ import java.nio.file.{Files, Path}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
 import scala.util.{Failure, Success}
 
-object FileShareActor {
+object FileShareActor:
 
   import model.ShareProtocol.*
   import model.UploadProtocol.UploadFile
@@ -31,7 +31,7 @@ object FileShareActor {
   private val AvailableFilesKey =
     LWWMapKey.create[String, ORSet[String]]("available-files")
 
-  def apply(): Behavior[Command] = Behaviors.setup { context =>
+  def apply(): Behavior[Command] = Behaviors setup: context =>
     val key = ServiceKey[Command]("pekkrop")
     context.system.receptionist ! Register(key, context.self)
     val replicator = DistributedData(context.system).replicator
@@ -56,14 +56,13 @@ object FileShareActor {
         )
     replicator ! Replicator.Subscribe(AvailableFilesKey, replicatorAdapter)
 
-    running(replicator);
-  }
+    running(replicator)
 
   def running(
       replicator: ActorRef[Replicator.Command],
       localFiles: Map[String, Path] = Map.empty
   ): Behavior[Command] =
-    Behaviors.receive { (context, message) =>
+    Behaviors.receive: (context, message) =>
       given ActorContext[Command] = context
 
       given node: SelfUniqueAddress =
@@ -71,10 +70,10 @@ object FileShareActor {
 
       given ExecutionContextExecutor = context.system.executionContext
 
-      message match {
+      message match
         case RegisterFile(filePath) =>
           val fileName = filePath.getFileName.toString
-          if (Files.exists(filePath) && Files.isReadable(filePath)) {
+          if Files.exists(filePath) && Files.isReadable(filePath) then
             context.log.info(s"Registered local file: $fileName at $filePath")
 
             val replicatorUpdateAdapter = context
@@ -87,20 +86,16 @@ object FileShareActor {
               WriteLocal,
               replyTo = replicatorUpdateAdapter
             )(old =>
-              old :+ (fileName -> (old
-                .get(fileName)
-                .getOrElse(
-                  ORSet.empty[String]
-                ) :+ node.uniqueAddress.address.hostPort))
+              old :+ (fileName -> (old get fileName getOrElse ORSet
+                .empty[String] :+ node.uniqueAddress.address.hostPort))
             )
 
             running(replicator, localFiles + (fileName -> filePath))
-          } else {
+          else
             context.log.warn(
               s"Cannot register file: $filePath. It does not exist or is not readable."
             )
             Behaviors.same
-          }
 
         case ListAvailableFiles(replyTo) =>
           val listRequestAdapter = context.messageAdapter[
@@ -118,7 +113,7 @@ object FileShareActor {
           val fileReqAdapter = context.messageAdapter[Replicator.GetResponse[
             LWWMap[String, ORSet[String]]
           ]](InternalFileRequest_(_, fileName, replyTo))
-          if localFiles.contains(fileName) then
+          if localFiles contains fileName then
             context.log.warn(s"Already has file $fileName abort!")
             replyTo ! FileTransferFailed(
               fileName,
@@ -129,7 +124,7 @@ object FileShareActor {
 
         case SendFileTo(fileName, recipientNode, recipientActor) =>
           val uploadWorker =
-            context.spawnAnonymous(FileUploadWorker(localFiles))
+            context spawnAnonymous FileUploadWorker(localFiles)
           uploadWorker ! UploadFile(fileName, recipientNode, recipientActor)
           Behaviors.same
 
@@ -142,8 +137,6 @@ object FileShareActor {
           Behaviors.same
 
         case cmd: InternalCommand_ => handleInternalCommand(cmd, replicator)
-      }
-    }
 
   private def handleInternalCommand(
       replicatorCmd: InternalCommand_,
@@ -152,15 +145,14 @@ object FileShareActor {
       context: ActorContext[Command],
       node: SelfUniqueAddress,
       ec: ExecutionContext
-  ): Behavior[Command] = replicatorCmd match {
-    // Distributed Data Replicator Responses
+  ): Behavior[Command] = replicatorCmd match
     case InternalListRequest_(resp, replyTo) =>
       resp match
         case successResp @ Replicator.GetSuccess(key) =>
-          val data = successResp.get(key)
-          val filesMap = data.entries.map { case (fileName, nodesSet) =>
-            fileName -> nodesSet.elements
-          }
+          val data = successResp get key
+          val filesMap = data.entries.map:
+            case (fileName, nodesSet) =>
+              fileName -> nodesSet.elements
           replyTo ! AvailableFiles(filesMap)
           Behaviors.same
         case _: Replicator.GetFailure[_] | _: Replicator.NotFound[_] =>
@@ -171,17 +163,17 @@ object FileShareActor {
           Behaviors.same
 
         case other =>
-          context.log.warn("Got " + other)
+          context.log.warn(s"Got $other")
           Behaviors.stopped
 
     case InternalFileRequest_(resp, fileName, replyTo) =>
       resp match
         case successResp @ Replicator.GetSuccess(key) =>
-          successResp.get(key).get(fileName) match
+          successResp get key get fileName match
             case Some(nodesSet) if nodesSet.elements.nonEmpty =>
               val hostNodeAddress =
                 nodesSet.elements.head // TODO: implement a more sophisticated selection
-              hostNodeAddress.split(":").toList match {
+              hostNodeAddress.split(":").toList match
                 case hostAndName :: port :: Nil =>
                   context.log.info(
                     s"File $fileName found on node: $hostNodeAddress. Initiating download."
@@ -192,14 +184,14 @@ object FileShareActor {
                   val sys: ActorSystem = context.system.classicSystem
                   val path = RootActorPath(
                     context.self.path.address
-                      .copy(host = Some(host), port = port.toIntOption),
+                      copy (host = Some(host), port = port.toIntOption),
                     context.system.name
                   )
                   val castedPath: ActorPath = path
                   val remoteActorPath = context.self.path.elements
                     .foldLeft[ActorPath](castedPath)(_.child(_))
                   val workerRef =
-                    context.spawnAnonymous(FileDownloadWorker(context.self))
+                    context spawnAnonymous FileDownloadWorker(context.self)
 
                   context.log.info(
                     s"Attempting to resolve remote actor: $remoteActorPath"
@@ -209,7 +201,7 @@ object FileShareActor {
                   sys
                     .actorSelection(remoteActorPath)
                     .resolveOne(3.seconds)
-                    .onComplete {
+                    .onComplete:
                       case Success(remoteActorRef) =>
                         sys.log.info(
                           s"Resolved remote actor: $remoteActorRef. Sending SendFileTo command."
@@ -228,9 +220,7 @@ object FileShareActor {
                           fileName,
                           s"Could not connect to host node: ${ex.getMessage}"
                         )
-                    }
                 case _ => Behaviors.stopped
-              }
 
             case _ =>
               context.log.warn(
@@ -256,7 +246,7 @@ object FileShareActor {
     case InternalSubscribeReplicator_(e) =>
       e match
         case c @ Changed(key) =>
-          val data = c.get(key)
+          val data = c get key
           context.log.debug(
             s"Distributed Data Changed for AvailableFilesKey: ${data.entries}"
           )
@@ -267,7 +257,7 @@ object FileShareActor {
       context.log.info(s"Node is UP: ${e.member.address.hostPort}")
       Behaviors.same
     case InternalMemRm_(e) =>
-      context.log.info(s"Node is UP: ${e.member.address.hostPort}")
+      context.log.info(s"Node is Removed: ${e.member.address.hostPort}")
       val replicatorUpdateAdapter =
         context.messageAdapter[UpdateResponse[LWWMap[String, ORSet[String]]]](
           InternalKeyUpdate_.apply
@@ -282,15 +272,14 @@ object FileShareActor {
           .filter((k, s) => s.contains(e.member.address.hostPort))
           .toList
           .foldLeft(old)((m, keyWithSet) =>
-            m.put(
-              node,
-              keyWithSet._1,
-              keyWithSet._2.remove(e.member.address.hostPort)
-            )
+            keyWithSet match
+              case (key, set) =>
+                m.put(
+                  node,
+                  key,
+                  set.remove(e.member.address.hostPort)
+                )
           )
       )
 
       Behaviors.same
-  }
-
-}
