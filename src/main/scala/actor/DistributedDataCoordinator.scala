@@ -1,6 +1,7 @@
 package actor
 
-import model.AvailableFiles
+import model.{AvailableFiles, DDProtocol}
+import model.DDProtocol.Response.DDFileLocation
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.cluster.ddata.typed.scaladsl.{
@@ -46,11 +47,13 @@ object DistributedDataCoordinator:
         ]](
           InternalDDCommandKeyUpdate_.apply
         )
+
+      context.log.info(node.uniqueAddress.address.hostPort)
       replicator ! Replicator.Update(
         AvailableFilesKey,
         LWWMap.empty[String, ORSet[String]],
         WriteLocal,
-        replyTo = replicatorUpdateAdapter
+        replicatorUpdateAdapter
       )(old =>
         old :+ (fileName -> (old get fileName getOrElse ORSet
           .empty[String] :+ node.uniqueAddress.address.hostPort))
@@ -167,12 +170,12 @@ object DistributedDataCoordinator:
                 case Some(nodesSet) if nodesSet.elements.nonEmpty =>
                   replyTo ! DDFileLocation(fileName, nodesSet.elements)
                 case _ =>
-                  replyTo ! DDNotFound(fileName)
+                  replyTo ! DDProtocol.Response.DDNotFound(fileName)
             case Replicator.GetFailure(key) =>
               context.log.warn(
                 s"Failed to retrieve file locations for $fileName from Distributed Data."
               )
-              replyTo ! DDNotFound(fileName)
+              replyTo ! DDProtocol.Response.DDNotFound(fileName)
             case other =>
               context.log.warn(
                 s"Got unexpected replicator response for file location request: $other"
@@ -193,3 +196,4 @@ object DistributedDataCoordinator:
               )
               Behaviors.same
             case _: Replicator.Deleted[_] => Behaviors.same
+            case _: Replicator.Changed[_] => Behaviors.same

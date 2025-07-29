@@ -34,9 +34,11 @@ object ShareProtocol:
       downloadTo: ActorRef[DownloadProtocol.DownloadCommand]
   ) extends Command
 
-  final case class FileSaved(file: String, filePath: Path) extends Command
-
-  final case class FileSaveFailed(file: String, reason: String) extends Command
+  final case class InitiateDownload(
+      fileName: String,
+      hostNodes: Set[String],
+      originalReplyTo: ActorRef[FileTransferStatus]
+  ) extends Command
 
   sealed trait InternalCommand_ extends Command
 
@@ -80,7 +82,7 @@ object DDProtocol:
   final case class InternalFileRequest_(
       response: GetResponse[LWWMap[String, ORSet[String]]],
       file: String,
-      replyTo: ActorRef[DDResponse]
+      replyTo: ActorRef[Response.DDResponse]
   ) extends InternalDDCommand_
 
   sealed trait DDCommand extends InternalDDCommand_
@@ -94,25 +96,61 @@ object DDProtocol:
 
   final case class GetFileLocations(
       fileName: String,
-      replyTo: ActorRef[DDResponse]
+      replyTo: ActorRef[Response.DDResponse]
   ) extends DDCommand
 
-  final case class RemoveFile(removedHostPort: String) extends DDCommand
-
-  sealed trait DDResponse
-
-  final case class DDFileLocation(
-      fileName: String,
-      hostPorts: Set[String] // TODO: Get ref here
-  ) extends DDResponse
-
-  final case class DDNotFound(fileName: String) extends DDResponse
-
   final case class RemoveNodeFiles(removedHostPort: String) extends DDCommand
+
+  object Response:
+    sealed trait DDResponse
+
+    final case class DDFileLocation(
+        fileName: String,
+        hostNodes: Set[String] // TODO: Get ref here
+    ) extends DDResponse
+
+    final case class DDNotFound(fileName: String) extends DDResponse
+  end Response
+
 end DDProtocol
 
+object LocalFileProtocol:
+  sealed trait LocalFileCommand
+
+  final case class RegisterFile(
+      filePath: Path,
+      replyTo: ActorRef[DDProtocol.DDCommand]
+  ) extends LocalFileCommand
+
+  final case class SendFileTo(
+      fileName: String,
+      recipientNode: String,
+      recipientActor: ActorRef[DownloadProtocol.DownloadCommand]
+  ) extends LocalFileCommand
+
+  final case class SaveFile(fileName: String, filePath: Path)
+      extends LocalFileCommand
+
+  final case class SaveFileFailed(fileName: String, reason: String)
+      extends LocalFileCommand
+
+  final case class CheckFileAvailability(
+      fileName: String,
+      replyTo: ActorRef[Response.FileCheckResponse]
+  ) extends LocalFileCommand
+
+  object Response:
+    sealed trait FileCheckResponse
+
+    final case class FileFound(fileName: String, filePath: Path)
+        extends FileCheckResponse
+
+    final case class FileNotFound(fileName: String) extends FileCheckResponse
+
+end LocalFileProtocol
+
 final case class AvailableFiles(files: Map[String, Set[String]])
-    extends DDProtocol.DDResponse
+    extends DDProtocol.Response.DDResponse
     with ShareProtocol.Response
 
 object DownloadProtocol:

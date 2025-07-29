@@ -39,14 +39,13 @@ def main(args: Array[String]): Unit =
     """)
     .withFallback(ConfigFactory.load())
 
-  import scala.concurrent.duration._
-  implicit val timeout: Timeout = Timeout(3.seconds)
-
-  val system = ActorSystem(FileShareGuardian(), "pekkrop", config)
+  import scala.concurrent.duration.*
+  given Timeout = Timeout(3.seconds)
+  given system: ActorSystem[ShareProtocol.Command] =
+    ActorSystem(FileShareGuardian(), "pekkrop", config)
+  import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 
   given executor: ExecutionContextExecutor = system.executionContext
-
-  implicit val scheduler: Scheduler = system.scheduler
 
   Files.createDirectories(Paths.get(s"downloaded_files_$port"))
   system.log.info(s"Pekkrop Node started on port $port")

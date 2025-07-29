@@ -1,12 +1,12 @@
 package actor
 
-import model.ShareProtocol.{FileSaveFailed, RegisterFile}
+import model.ShareProtocol.RegisterFile
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Source}
 
-import java.nio.file.{Files, Paths, StandardOpenOption}
+import java.nio.file.{Files, Paths, StandardCopyOption, StandardOpenOption}
 import scala.concurrent.ExecutionContextExecutor
 import scala.util.{Failure, Success, Try}
 import model.ShareProtocol.Command
@@ -64,7 +64,7 @@ object FileDownloadWorker:
                     Files.move(
                       tempFilePath,
                       finalPath,
-                      java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                      StandardCopyOption.REPLACE_EXISTING
                     )
                     logger info s"File $fileName successfully downloaded and saved to $finalPath"
                     self ! DownloadFinished(finalPath.toString)
@@ -96,5 +96,5 @@ object FileDownloadWorker:
                 context.log.warn(
                   s"Failed to delete temporary file for $fileName: ${ex.getMessage}"
                 )
-          replyTo ! FileSaveFailed(fileName, reason)
+                // Should notice ?
           Behaviors.stopped
