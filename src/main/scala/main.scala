@@ -1,12 +1,8 @@
-import actor.FileShareActor
+import actor.FileShareGuardian
 import com.typesafe.config.ConfigFactory
 import model.ShareProtocol
-import model.ShareProtocol.{
-  AvailableFiles,
-  ListAvailableFiles,
-  RegisterFile,
-  RequestFile
-}
+import model.ShareProtocol.{ListAvailableFiles, RegisterFile, RequestFile}
+import model.AvailableFiles
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.util.Timeout
@@ -46,7 +42,7 @@ def main(args: Array[String]): Unit =
   import scala.concurrent.duration._
   implicit val timeout: Timeout = Timeout(3.seconds)
 
-  val system = ActorSystem(FileShareActor(), "pekkrop", config)
+  val system = ActorSystem(FileShareGuardian(), "pekkrop", config)
 
   given executor: ExecutionContextExecutor = system.executionContext
 

@@ -1,12 +1,14 @@
 package model
 
+import model.ShareProtocol.InternalCommand_
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.ddata.{LWWMap, ORSet}
-import org.apache.pekko.cluster.ddata.Replicator.UpdateResponse
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{
   GetResponse,
-  SubscribeResponse
+  SubscribeResponse,
+  Update,
+  UpdateResponse
 }
 import org.apache.pekko.util.ByteString
 
@@ -26,15 +28,15 @@ object ShareProtocol:
       replyTo: ActorRef[FileTransferStatus]
   ) extends Command
 
-  final case class FileSaved(file: String, filePath: Path) extends Command
-
-  final case class FileSaveFailed(file: String, reason: String) extends Command
-
   final case class SendFileTo(
       file: String,
       recipientId: String,
       downloadTo: ActorRef[DownloadProtocol.DownloadCommand]
   ) extends Command
+
+  final case class FileSaved(file: String, filePath: Path) extends Command
+
+  final case class FileSaveFailed(file: String, reason: String) extends Command
 
   sealed trait InternalCommand_ extends Command
 
@@ -43,29 +45,7 @@ object ShareProtocol:
   final case class InternalMemRm_(upEvent: MemberRemoved)
       extends InternalCommand_
 
-  final case class InternalSubscribeReplicator_(
-      upEvent: SubscribeResponse[LWWMap[String, ORSet[String]]]
-  ) extends InternalCommand_
-
-  final case class InternalKeyUpdate_(
-      upEvent: UpdateResponse[LWWMap[String, ORSet[String]]]
-  ) extends InternalCommand_
-
-  final case class InternalListRequest_(
-      response: GetResponse[LWWMap[String, ORSet[String]]],
-      replyTo: ActorRef[AvailableFiles]
-  ) extends InternalCommand_
-
-  final case class InternalFileRequest_(
-      response: GetResponse[LWWMap[String, ORSet[String]]],
-      file: String,
-      replyTo: ActorRef[FileTransferStatus]
-  ) extends InternalCommand_
-
   sealed trait Response
-
-  final case class AvailableFiles(files: Map[String, Set[String]])
-      extends Response
 
   sealed trait FileTransferStatus extends Response
 
@@ -79,6 +59,61 @@ object ShareProtocol:
       extends FileTransferStatus
 
   final case class FileNotAvailable(file: String) extends FileTransferStatus
+end ShareProtocol
+
+object DDProtocol:
+  sealed trait InternalDDCommand_
+
+  final case class InternalDDCommandSubscribeReplicator_(
+      upEvent: SubscribeResponse[LWWMap[String, ORSet[String]]]
+  ) extends InternalDDCommand_
+
+  final case class InternalDDCommandKeyUpdate_(
+      upEvent: UpdateResponse[LWWMap[String, ORSet[String]]]
+  ) extends InternalDDCommand_
+
+  final case class InternalFileListing_(
+      response: GetResponse[LWWMap[String, ORSet[String]]],
+      replyTo: ActorRef[AvailableFiles]
+  ) extends InternalDDCommand_
+
+  final case class InternalFileRequest_(
+      response: GetResponse[LWWMap[String, ORSet[String]]],
+      file: String,
+      replyTo: ActorRef[DDResponse]
+  ) extends InternalDDCommand_
+
+  sealed trait DDCommand extends InternalDDCommand_
+
+  final case class RegisterFile(fileName: String, hostPort: String)
+      extends DDCommand
+
+  final case class GetFileListing(
+      replyTo: ActorRef[AvailableFiles]
+  ) extends DDCommand
+
+  final case class GetFileLocations(
+      fileName: String,
+      replyTo: ActorRef[DDResponse]
+  ) extends DDCommand
+
+  final case class RemoveFile(removedHostPort: String) extends DDCommand
+
+  sealed trait DDResponse
+
+  final case class DDFileLocation(
+      fileName: String,
+      hostPorts: Set[String] // TODO: Get ref here
+  ) extends DDResponse
+
+  final case class DDNotFound(fileName: String) extends DDResponse
+
+  final case class RemoveNodeFiles(removedHostPort: String) extends DDCommand
+end DDProtocol
+
+final case class AvailableFiles(files: Map[String, Set[String]])
+    extends DDProtocol.DDResponse
+    with ShareProtocol.Response
 
 object DownloadProtocol:
 
@@ -98,6 +133,7 @@ object DownloadProtocol:
 
   final case class DownloadError(file: String, reason: String)
       extends DownloadCommand
+end DownloadProtocol
 
 object UploadProtocol:
 
@@ -108,3 +144,4 @@ object UploadProtocol:
       recipientId: String,
       downloadTo: ActorRef[DownloadProtocol.DownloadCommand]
   ) extends UploadCommand
+end UploadProtocol
