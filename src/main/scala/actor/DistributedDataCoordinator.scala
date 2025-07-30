@@ -8,7 +8,6 @@ import org.apache.pekko.cluster.ddata.typed.scaladsl.{
   Replicator
 }
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{
-  Get,
   ReadLocal,
   SubscribeResponse,
   WriteLocal
@@ -78,7 +77,7 @@ object DistributedDataCoordinator:
       ]](
         InternalFileRequest_(_, fileName, replyTo.narrow)
       )
-      replicator ! Get(AvailableFilesKey, ReadLocal, fileReqAdapter)
+      replicator ! Replicator.Get(AvailableFilesKey, ReadLocal, fileReqAdapter)
       Behaviors.same
 
     case RemoveNodeFiles(removedHostPort) =>

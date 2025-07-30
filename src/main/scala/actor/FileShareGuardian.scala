@@ -4,7 +4,7 @@ import org.apache.pekko.actor.typed.receptionist.Receptionist.{Find, Register}
 import org.apache.pekko.actor.typed.receptionist.{Receptionist, ServiceKey}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior}
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior, Scheduler}
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
 import org.apache.pekko.util.Timeout
@@ -14,12 +14,12 @@ import scala.util.{Either, Failure, Left, Random, Right, Success}
 
 object FileShareGuardian:
 
-  import model.ShareProtocol.*
-  import model.ShareProtocol.Response.*
-
-  import model.{DDProtocol, LocalFileProtocol}
   import model.DDProtocol.{DDCommand, Response}
   import model.LocalFileProtocol.{CheckFileAvailability, LocalFileCommand}
+  import model.ShareProtocol.*
+  import model.ShareProtocol.Response.*
+  import model.{DDProtocol, LocalFileProtocol}
+  import scala.concurrent.duration.*
 
   def apply(): Behavior[Command] = init().narrow
 
@@ -61,6 +61,7 @@ object FileShareGuardian:
       given ActorSystem[_] = context.system
       given ActorContext[InternalCommand_] = context
       given ExecutionContextExecutor = context.system.executionContext
+      import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 
       message match
         case InternalMemUp_(e) =>
@@ -81,7 +82,9 @@ object FileShareGuardian:
       context: ActorContext[InternalCommand_],
       ec: ExecutionContext,
       sys: ActorSystem[_],
-      ck: ServiceKey[Command]
+      ck: ServiceKey[Command],
+      sc: Scheduler,
+      tm: Timeout = Timeout(300.milliseconds),
   ): Behavior[InternalCommand_] = command match
     case RegisterFile(filePath) =>
       lm ! LocalFileProtocol
@@ -92,15 +95,12 @@ object FileShareGuardian:
       Behaviors.same
 
     case ListAvailableFiles(replyTo) =>
-      dd ! DDProtocol.GetFileListing(replyTo)
+      dd ? DDProtocol.GetFileListing.apply
       Behaviors.same
 
     case RequestFile(fileName, replyTo) =>
       context.log.info(s"Received request to download file: $fileName")
-      import scala.concurrent.duration.*
-      given Timeout = Timeout(300.milliseconds)
 
-      import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 
       val maybeAvailableHostname = (lm ? (CheckFileAvailability(fileName, _)))
         .map[Either[String, Unit]]:
