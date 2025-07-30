@@ -51,15 +51,6 @@ object LocalFileManager:
               context.log.warn(s"Requested to send non-local file: $fileName")
           Behaviors.same
 
-        case SaveFile(fileName, filePath) =>
-          context.log.info(s"File $fileName successfully saved to $filePath")
-          run(
-            localFiles + (fileName -> filePath)
-          )
-        case SaveFileFailed(fileName, reason) =>
-          context.log.error(s"Failed to save file $fileName: $reason")
-          Behaviors.same
-
         case CheckFileAvailability(fileName, replyTo) =>
           if localFiles.contains(fileName) then
             localFiles.get(fileName).foreach { path =>

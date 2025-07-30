@@ -7,8 +7,6 @@ import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior}
 import org.apache.pekko.actor.{ActorPath, RootActorPath}
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
-import org.apache.pekko.cluster.ddata.typed.scaladsl.DistributedData
-import org.apache.pekko.cluster.ddata.SelfUniqueAddress
 import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
 import org.apache.pekko.util.Timeout
 
@@ -62,8 +60,6 @@ object FileShareGuardian:
     Behaviors.receive: (context, message) =>
       given ActorSystem[_] = context.system
       given ActorContext[InternalCommand_] = context
-      given node: SelfUniqueAddress =
-        DistributedData(context.system).selfUniqueAddress
       given ExecutionContextExecutor = context.system.executionContext
 
       message match

@@ -133,12 +133,6 @@ object LocalFileProtocol:
       recipientActor: ActorRef[DownloadProtocol.DownloadCommand]
   ) extends LocalFileCommand
 
-  final case class SaveFile(fileName: String, filePath: Path)
-      extends LocalFileCommand
-
-  final case class SaveFileFailed(fileName: String, reason: String)
-      extends LocalFileCommand
-
   final case class CheckFileAvailability(
       fileName: String,
       replyTo: ActorRef[Response.FileCheckResponse]

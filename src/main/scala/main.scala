@@ -1,7 +1,7 @@
 import actor.FileShareGuardian
 import com.typesafe.config.ConfigFactory
 
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
+import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.util.Timeout
 import org.slf4j.LoggerFactory

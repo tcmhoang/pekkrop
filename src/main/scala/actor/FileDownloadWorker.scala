@@ -110,7 +110,6 @@ object FileDownloadWorker:
                 context.log.warn(
                   s"Failed to delete temporary file for $fileName: ${ex.getMessage}"
                 )
-                // Should notice ?
           Behaviors.stopped
   end apply
 
