@@ -9,8 +9,8 @@ import java.nio.file.{Files, Path}
 
 object LocalFileManager:
 
-  import model.LocalFileProtocol.*
   import model.DDProtocol
+  import model.LocalFileProtocol.*
   import model.UploadProtocol.UploadFile
 
   def apply(
@@ -41,20 +41,19 @@ object LocalFileManager:
             Behaviors.same
 
         case SendFileTo(fileName, recipientNode, recipientActor) =>
-          localFiles.get(fileName) match
+          localFiles get fileName match
             case Some(filePath) =>
-              val uploadWorker = context.spawnAnonymous(
-                FileUploadWorker(Map(fileName -> filePath))
+              val uploadWorker = context spawnAnonymous FileUploadWorker(
+                Map(fileName -> filePath)
               )
+              context watch uploadWorker
               uploadWorker ! UploadFile(fileName, recipientNode, recipientActor)
             case None =>
               context.log.warn(s"Requested to send non-local file: $fileName")
           Behaviors.same
 
         case CheckFileAvailability(fileName, replyTo) =>
-          if localFiles.contains(fileName) then
-            localFiles.get(fileName).foreach { path =>
-              replyTo ! FileFound(fileName, path)
-            }
-          else replyTo ! FileNotFound(fileName)
+          localFiles get fileName match
+            case Some(value) => replyTo ! FileFound(fileName, value)
+            case None        => replyTo ! FileNotFound(fileName)
           Behaviors.same

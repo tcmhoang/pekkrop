@@ -6,14 +6,14 @@ import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Sink}
 import org.apache.pekko.util.ByteString
 
-import scala.util.{Failure, Success}
-import scala.concurrent.{ExecutionContextExecutor, Future}
 import java.nio.file.{Files, Path}
+import scala.concurrent.{ExecutionContextExecutor, Future}
+import scala.util.{Failure, Success}
 
 object FileUploadWorker:
 
-  import model.UploadProtocol.*
   import model.DownloadProtocol.{DownloadChunk, DownloadStart}
+  import model.UploadProtocol.*
 
   def apply(state: Map[String, Path]): Behavior[UploadCommand] =
     Behaviors setup:

@@ -138,7 +138,7 @@ object DistributedDataCoordinator:
       node: SelfUniqueAddress,
       replicator: ActorRef[Replicator.Command]
   ): Behavior[InternalDDCommand_] =
-    Behaviors.receive: (context, message) =>
+    Behaviors receive: (context, message) =>
       given ExecutionContext = context.system.executionContext
 
       message match

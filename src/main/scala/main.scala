@@ -26,21 +26,12 @@ def main(args: Array[String]): Unit =
 
   val port = if args.nonEmpty then args(0).toInt else 0
 
-  /*
-  val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
-  val configurator = new JoranConfigurator()
-  configurator.setContext(loggerContext)
-  loggerContext.reset()
-   */
-
   LoggerFactory.getLogger(this.getClass).debug("SLF4J initialized early.")
 
-  val config = ConfigFactory
-    .parseString(s"""
+  val config = ConfigFactory parseString s"""
       pekko.remote.artery.canonical.port = $port
       pekko.remote.artery.canonical.hostname = "127.0.0.1"
-    """)
-    .withFallback(ConfigFactory.load())
+    """ withFallback ConfigFactory.load()
 
   import scala.concurrent.duration.*
   given Timeout = Timeout(3.seconds)
@@ -57,7 +48,7 @@ def main(args: Array[String]): Unit =
     println("System terminated")
     running = false
 
-  sys.addShutdownHook:
+  sys addShutdownHook:
     println("Shutting down system...")
 
   Future:
@@ -80,7 +71,7 @@ def main(args: Array[String]): Unit =
                 println("No files currently available in the cluster.")
               else
                 println("Available files in cluster:")
-                files.foreach:
+                files foreach:
                   case (fileName, nodes) =>
                     println(
                       s"- $fileName (available on nodes: ${nodes.mkString(", ")})"

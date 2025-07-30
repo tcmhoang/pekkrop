@@ -18,7 +18,7 @@ object FileDownloadWorker:
       replyTo: ActorRef[RegisterFile],
       remoteAddress: String
   ): Behavior[DownloadCommand] =
-    Behaviors.setup: context =>
+    Behaviors setup: context =>
       given ExecutionContextExecutor = context.system.executionContext
 
       given Materializer = Materializer(context.system)
@@ -54,11 +54,10 @@ object FileDownloadWorker:
                 s"Temporary file for $fileName not found. Cannot write chunk."
               )
             else
-              val futureWrite = Source
-                .single(chunk)
-                .runWith(
-                  FileIO.toPath(tempFilePath, Set(StandardOpenOption.APPEND))
-                )
+              val futureWrite = Source single chunk runWith FileIO.toPath(
+                tempFilePath,
+                Set(StandardOpenOption.APPEND)
+              )
               val logger = context.log
               val self = context.self
               val port = context.system.address.port.get

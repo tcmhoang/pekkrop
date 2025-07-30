@@ -42,7 +42,7 @@ object ShareProtocol:
 
   final case class InitiateDownload(
       fileName: String,
-      hostNodes: Set[String],
+      hostNodes: Set[ActorRef[Command]],
       originalReplyTo: ActorRef[Response.FileTransferStatus]
   ) extends Command
 
