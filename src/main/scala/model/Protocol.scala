@@ -2,12 +2,12 @@ package model
 
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
-import org.apache.pekko.cluster.ddata.{LWWMap, ORSet}
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{
   GetResponse,
   SubscribeResponse,
   UpdateResponse
 }
+import org.apache.pekko.cluster.ddata.{LWWMap, ORSet}
 import org.apache.pekko.util.ByteString
 
 import java.nio.file.Path
@@ -71,11 +71,11 @@ end ShareProtocol
 object DDProtocol:
   sealed trait InternalDDCommand_
 
-  final case class InternalDDCommandSubscribeReplicator_(
+  final case class InternalSubscribe_(
       upEvent: SubscribeResponse[LWWMap[String, ORSet[String]]]
   ) extends InternalDDCommand_
 
-  final case class InternalDDCommandKeyUpdate_(
+  final case class InternalKeyUpdate_(
       upEvent: UpdateResponse[LWWMap[String, ORSet[String]]]
   ) extends InternalDDCommand_
 
@@ -111,7 +111,7 @@ object DDProtocol:
 
     final case class FileLocation(
         fileName: String,
-        hostNodes: Set[String] // TODO: Get ref here
+        hostNodes: Set[String]
     ) extends DDResponse
 
     final case class NotFound(fileName: String) extends DDResponse

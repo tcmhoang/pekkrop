@@ -47,7 +47,7 @@ object DistributedDataCoordinator:
         .messageAdapter[Replicator.UpdateResponse[
           LWWMap[String, ORSet[String]]
         ]](
-          InternalDDCommandKeyUpdate_.apply
+          InternalKeyUpdate_.apply
         )
 
       replicator ! Replicator.Update(
@@ -89,7 +89,7 @@ object DistributedDataCoordinator:
         .messageAdapter[Replicator.UpdateResponse[
           LWWMap[String, ORSet[String]]
         ]](
-          InternalDDCommandKeyUpdate_.apply
+          InternalKeyUpdate_.apply
         )
       replicator ! Replicator.Update(
         AvailableFilesKey,
@@ -124,7 +124,7 @@ object DistributedDataCoordinator:
     val replicatorSubscribeAdapter =
       context
         .messageAdapter[SubscribeResponse[LWWMap[String, ORSet[String]]]](
-          InternalDDCommandSubscribeReplicator_.apply
+          InternalSubscribe_.apply
         )
 
     replicator ! Replicator.Subscribe(
@@ -185,13 +185,13 @@ object DistributedDataCoordinator:
               )
           Behaviors.same
 
-        case InternalDDCommandKeyUpdate_(e) =>
+        case InternalKeyUpdate_(e) =>
           context.log.debug(
             s"Distributed Data updated for AvailableFilesKey: ${e.key}"
           )
           Behaviors.same
 
-        case InternalDDCommandSubscribeReplicator_(e) =>
+        case InternalSubscribe_(e) =>
           e match
             case c @ Replicator.Changed(key) =>
               val data = c.get(key)
