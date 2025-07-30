@@ -61,10 +61,8 @@ object FileShareGuardian:
       given ActorSystem[_] = context.system
       import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
       given ActorContext[Command] = context
-
       given node: SelfUniqueAddress =
         DistributedData(context.system).selfUniqueAddress
-
       given ExecutionContextExecutor = context.system.executionContext
 
       message match

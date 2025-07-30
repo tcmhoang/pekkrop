@@ -48,15 +48,14 @@ object DistributedDataCoordinator:
           InternalDDCommandKeyUpdate_.apply
         )
 
-      context.log.info(node.uniqueAddress.address.hostPort)
       replicator ! Replicator.Update(
         AvailableFilesKey,
         LWWMap.empty[String, ORSet[String]],
         WriteLocal,
         replicatorUpdateAdapter
       )(old =>
-        old :+ (fileName -> (old get fileName getOrElse ORSet
-          .empty[String] :+ node.uniqueAddress.address.hostPort))
+        old :+ (fileName -> ((old get fileName getOrElse ORSet
+          .empty[String]) :+ hostPort))
       )
       Behaviors.same
 
@@ -117,6 +116,8 @@ object DistributedDataCoordinator:
   private def init(): Behavior[InternalDDCommand_] = Behaviors.setup: context =>
     given replicator: ActorRef[Replicator.Command] =
       DistributedData(context.system).replicator
+    given SelfUniqueAddress =
+      DistributedData(context.system).selfUniqueAddress
 
     val replicatorSubscribeAdapter =
       context
@@ -124,13 +125,11 @@ object DistributedDataCoordinator:
           InternalDDCommandSubscribeReplicator_.apply
         )
 
-    given SelfUniqueAddress =
-      DistributedData(context.system).selfUniqueAddress
-
     replicator ! Replicator.Subscribe(
       AvailableFilesKey,
       replicatorSubscribeAdapter
     )
+
     run
 
   private def run(using
@@ -169,7 +168,7 @@ object DistributedDataCoordinator:
               successResp get key get fileName match
                 case Some(nodesSet) if nodesSet.elements.nonEmpty =>
                   replyTo ! DDFileLocation(fileName, nodesSet.elements)
-                case _ =>
+                case None | _: Some[_] =>
                   replyTo ! DDProtocol.Response.DDNotFound(fileName)
             case Replicator.GetFailure(key) =>
               context.log.warn(
@@ -181,6 +180,7 @@ object DistributedDataCoordinator:
                 s"Got unexpected replicator response for file location request: $other"
               )
           Behaviors.same
+
         case InternalDDCommandKeyUpdate_(e) =>
           context.log.debug(
             s"Distributed Data updated for AvailableFilesKey: ${e.key}"
@@ -195,5 +195,5 @@ object DistributedDataCoordinator:
                 s"Distributed Data Changed for AvailableFilesKey: ${data.entries}"
               )
               Behaviors.same
-            case _: Replicator.Deleted[_] => Behaviors.same
-            case _: Replicator.Changed[_] => Behaviors.same
+            case _: Replicator.Deleted[_] | _: Replicator.Changed[_] =>
+              Behaviors.same

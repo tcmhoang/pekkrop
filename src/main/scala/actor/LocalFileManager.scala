@@ -32,8 +32,8 @@ object LocalFileManager:
         case RegisterFile(filePath, replyTo) =>
           val fileName = filePath.getFileName.toString
           if Files.exists(filePath) && Files.isReadable(filePath) then
-            context.log.info(s"Registered local file: $fileName at $filePath")
             replyTo ! DDProtocol.RegisterFile(fileName, node)
+            context.log.info(s"Registered local file: $fileName at $filePath")
             run(localFiles + (fileName -> filePath))
           else
             context.log.warn(
