@@ -1,28 +1,27 @@
 package actor
 
-import model.DDProtocol
 import model.LocalFileProtocol.Response.{FileFound, FileNotFound}
-import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.cluster.ddata.typed.scaladsl.DistributedData
 
 import java.nio.file.{Files, Path}
-import scala.concurrent.ExecutionContext
 
 object LocalFileManager:
 
   import model.LocalFileProtocol.*
+  import model.DDProtocol
   import model.UploadProtocol.UploadFile
 
-  def apply(): Behavior[LocalFileCommand] = Behaviors.setup: context =>
-    run()
-
-  private def run(
+  def apply(
       localFiles: Map[String, Path] = Map.empty
   ): Behavior[LocalFileCommand] =
+    run(localFiles)
+
+  private def run(
+      localFiles: Map[String, Path]
+  ): Behavior[LocalFileCommand] =
     Behaviors receive: (context, message) =>
-      given ActorContext[LocalFileCommand] = context
-      given ExecutionContext = context.system.executionContext
 
       val node = DistributedData(
         context.system

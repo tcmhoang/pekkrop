@@ -1,8 +1,6 @@
 package actor
 
-import model.{DDProtocol, LocalFileProtocol}
-import model.DDProtocol.Response
-import model.LocalFileProtocol.{CheckFileAvailability, LocalFileCommand}
+import model.DownloadProtocol.DownloadStart
 import org.apache.pekko.actor.typed.receptionist.Receptionist.Register
 import org.apache.pekko.actor.typed.receptionist.ServiceKey
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
@@ -21,7 +19,11 @@ import scala.util.{Either, Failure, Left, Right, Success}
 object FileShareGuardian:
 
   import model.ShareProtocol.*
-  import model.DDProtocol.DDCommand
+  import model.ShareProtocol.Response.*
+
+  import model.{DDProtocol, LocalFileProtocol}
+  import model.DDProtocol.{DDCommand, Response}
+  import model.LocalFileProtocol.{CheckFileAvailability, LocalFileCommand}
 
   def apply(): Behavior[Command] = Behaviors setup: context =>
     val key = ServiceKey[Command]("pekkrop")
@@ -97,11 +99,11 @@ object FileShareGuardian:
                 (
                   ddCoordinator ? (DDProtocol.GetFileLocations(fileName, _))
                 ).map:
-                  case Response.DDFileLocation(fileName, hostNodes) =>
+                  case Response.FileLocation(fileName, hostNodes) =>
                     Right((fileName, hostNodes))
-                  case _: model.DDProtocol.Response.DDNotFound =>
+                  case _: DDProtocol.Response.NotFound =>
                     Left(s"File $fileName not found in dd")
-                  case _: model.AvailableFiles =>
+                  case _: AvailableFiles =>
                     Left("Cannot resolved with such protocol")
             .onComplete:
               case Failure(exception) => logger.error(exception.getMessage)
@@ -150,7 +152,7 @@ object FileShareGuardian:
                   .foldLeft[ActorPath](castedPath)(_.child(_))
 
                 val workerRef = context.spawnAnonymous(
-                  FileDownloadWorker(context.self)
+                  FileDownloadWorker(context.self, remoteActorPath.address.toString)
                 )
 
                 context.log.info(

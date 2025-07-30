@@ -1,13 +1,11 @@
 package model
 
-import model.ShareProtocol.InternalCommand_
 import org.apache.pekko.actor.typed.ActorRef
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.ddata.{LWWMap, ORSet}
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{
   GetResponse,
   SubscribeResponse,
-  Update,
   UpdateResponse
 }
 import org.apache.pekko.util.ByteString
@@ -20,12 +18,13 @@ object ShareProtocol:
 
   final case class RegisterFile(file: Path) extends Command
 
-  final case class ListAvailableFiles(replyTo: ActorRef[AvailableFiles])
-      extends Command
+  final case class ListAvailableFiles(
+      replyTo: ActorRef[Response.AvailableFiles]
+  ) extends Command
 
   final case class RequestFile(
       file: String,
-      replyTo: ActorRef[FileTransferStatus]
+      replyTo: ActorRef[Response.FileTransferStatus]
   ) extends Command
 
   final case class SendFileTo(
@@ -37,7 +36,7 @@ object ShareProtocol:
   final case class InitiateDownload(
       fileName: String,
       hostNodes: Set[String],
-      originalReplyTo: ActorRef[FileTransferStatus]
+      originalReplyTo: ActorRef[Response.FileTransferStatus]
   ) extends Command
 
   sealed trait InternalCommand_ extends Command
@@ -47,20 +46,26 @@ object ShareProtocol:
   final case class InternalMemRm_(upEvent: MemberRemoved)
       extends InternalCommand_
 
-  sealed trait Response
+  object Response:
+    sealed trait Response
 
-  sealed trait FileTransferStatus extends Response
+    sealed trait FileTransferStatus extends Response
 
-  final case class FileTransferInitiated(file: String)
-      extends FileTransferStatus
+    final case class FileTransferInitiated(file: String)
+        extends FileTransferStatus
 
-  final case class FileTransferCompleted(file: String, localPath: Path)
-      extends FileTransferStatus
+    final case class FileTransferCompleted(file: String, localPath: Path)
+        extends FileTransferStatus
 
-  final case class FileTransferFailed(file: String, reason: String)
-      extends FileTransferStatus
+    final case class FileTransferFailed(file: String, reason: String)
+        extends FileTransferStatus
 
-  final case class FileNotAvailable(file: String) extends FileTransferStatus
+    final case class AvailableFiles(files: Map[String, Set[String]])
+        extends Response
+
+    final case class FileNotAvailable(file: String) extends FileTransferStatus
+  end Response
+
 end ShareProtocol
 
 object DDProtocol:
@@ -76,7 +81,7 @@ object DDProtocol:
 
   final case class InternalFileListing_(
       response: GetResponse[LWWMap[String, ORSet[String]]],
-      replyTo: ActorRef[AvailableFiles]
+      replyTo: ActorRef[ShareProtocol.Response.AvailableFiles]
   ) extends InternalDDCommand_
 
   final case class InternalFileRequest_(
@@ -91,7 +96,7 @@ object DDProtocol:
       extends DDCommand
 
   final case class GetFileListing(
-      replyTo: ActorRef[AvailableFiles]
+      replyTo: ActorRef[ShareProtocol.Response.AvailableFiles]
   ) extends DDCommand
 
   final case class GetFileLocations(
@@ -104,12 +109,12 @@ object DDProtocol:
   object Response:
     sealed trait DDResponse
 
-    final case class DDFileLocation(
+    final case class FileLocation(
         fileName: String,
         hostNodes: Set[String] // TODO: Get ref here
     ) extends DDResponse
 
-    final case class DDNotFound(fileName: String) extends DDResponse
+    final case class NotFound(fileName: String) extends DDResponse
   end Response
 
 end DDProtocol
@@ -149,10 +154,6 @@ object LocalFileProtocol:
 
 end LocalFileProtocol
 
-final case class AvailableFiles(files: Map[String, Set[String]])
-    extends DDProtocol.Response.DDResponse
-    with ShareProtocol.Response
-
 object DownloadProtocol:
 
   sealed trait DownloadCommand
@@ -161,13 +162,20 @@ object DownloadProtocol:
       file: String,
       chunk: ByteString,
       sequenceNr: Long,
+      where: ActorRef[UploadProtocol.UploadCommand],
       isLast: Boolean
   ) extends DownloadCommand
 
-  final case class DownloadStart(file: String, fileSize: Long)
-      extends DownloadCommand
+  final case class DownloadStart(
+      file: String,
+      fileSize: Long,
+      where: ActorRef[UploadProtocol.UploadCommand]
+  ) extends DownloadCommand
 
-  final case class DownloadFinished(file: String) extends DownloadCommand
+  final case class DownloadFinished(
+      file: String,
+      replyTo: ActorRef[ShareProtocol.RegisterFile]
+  ) extends DownloadCommand
 
   final case class DownloadError(file: String, reason: String)
       extends DownloadCommand

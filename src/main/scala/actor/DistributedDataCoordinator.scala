@@ -1,9 +1,8 @@
 package actor
 
-import model.{AvailableFiles, DDProtocol}
-import model.DDProtocol.Response.DDFileLocation
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
+import org.apache.pekko.cluster.ddata.Replicator as UntypedReplicator
 import org.apache.pekko.cluster.ddata.typed.scaladsl.{
   DistributedData,
   Replicator
@@ -25,7 +24,10 @@ import scala.concurrent.ExecutionContext
 
 object DistributedDataCoordinator:
 
+  import model.DDProtocol
   import model.DDProtocol.*
+  import model.DDProtocol.Response.*
+  import model.ShareProtocol.Response.AvailableFiles
 
   private val AvailableFilesKey =
     LWWMapKey.create[String, ORSet[String]]("available-files")
@@ -149,35 +151,37 @@ object DistributedDataCoordinator:
                 case (fileName, nodesSet) =>
                   fileName -> nodesSet.elements
               replyTo ! AvailableFiles(filesMap)
-              Behaviors.same
             case _: Replicator.GetFailure[_] | _: Replicator.NotFound[_] =>
               context.log.warn(
                 "Failed to retrieve available files from Distributed Data."
               )
               replyTo ! AvailableFiles(Map.empty)
-              Behaviors.same
-            case other =>
+            case UntypedReplicator.GetSuccess(_, _) |
+                UntypedReplicator.GetDataDeleted(_, _) =>
               context.log.warn(
-                s"Got unexpected replicator response for file listing : $other"
+                "Got untyped response from replicator"
               )
-              Behaviors.same
+          Behaviors.same
 
         case InternalFileRequest_(resp, fileName, replyTo) =>
           resp match
             case successResp @ Replicator.GetSuccess(key) =>
               successResp get key get fileName match
                 case Some(nodesSet) if nodesSet.elements.nonEmpty =>
-                  replyTo ! DDFileLocation(fileName, nodesSet.elements)
+                  replyTo ! FileLocation(fileName, nodesSet.elements)
                 case None | _: Some[_] =>
-                  replyTo ! DDProtocol.Response.DDNotFound(fileName)
+                  replyTo ! DDProtocol.Response.NotFound(fileName)
             case Replicator.GetFailure(key) =>
               context.log.warn(
                 s"Failed to retrieve file locations for $fileName from Distributed Data."
               )
-              replyTo ! DDProtocol.Response.DDNotFound(fileName)
-            case other =>
+              replyTo ! DDProtocol.Response.NotFound(fileName)
+            case UntypedReplicator.NotFound(_, _) |
+                UntypedReplicator.GetFailure(_, _) |
+                UntypedReplicator.GetSuccess(_, _) |
+                UntypedReplicator.GetDataDeleted(_, _) =>
               context.log.warn(
-                s"Got unexpected replicator response for file location request: $other"
+                "Got untyped response from replicator"
               )
           Behaviors.same
 

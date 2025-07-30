@@ -1,8 +1,6 @@
 import actor.FileShareGuardian
 import com.typesafe.config.ConfigFactory
-import model.ShareProtocol
-import model.ShareProtocol.{ListAvailableFiles, RegisterFile, RequestFile}
-import model.AvailableFiles
+
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Scheduler}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.util.Timeout
@@ -21,6 +19,11 @@ given FromString[Array[String]] with
 
 @main
 def main(args: Array[String]): Unit =
+
+  import model.ShareProtocol
+  import model.ShareProtocol.*
+  import model.ShareProtocol.Response.*
+
   val port = if args.nonEmpty then args(0).toInt else 0
 
   /*
@@ -90,15 +93,15 @@ def main(args: Array[String]): Unit =
           (system ? (RequestFile(fileName, _))).onComplete:
             case Success(status) =>
               status match
-                case ShareProtocol.FileTransferInitiated(name) =>
+                case FileTransferInitiated(name) =>
                   println(
                     s"File transfer initiated for $name. Check 'downloaded_files_$port' directory."
                   )
-                case ShareProtocol.FileTransferCompleted(name, path) =>
+                case FileTransferCompleted(name, path) =>
                   println(s"File $name successfully downloaded to $path.")
-                case ShareProtocol.FileTransferFailed(name, reason) =>
+                case FileTransferFailed(name, reason) =>
                   println(s"File transfer failed for $name: $reason")
-                case ShareProtocol.FileNotAvailable(name) =>
+                case FileNotAvailable(name) =>
                   println(s"File $name is not available in the cluster.")
             case Failure(ex) =>
               println(s"Error requesting file $fileName: ${ex.getMessage}")
