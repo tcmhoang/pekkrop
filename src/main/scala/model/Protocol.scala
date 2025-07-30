@@ -14,7 +14,14 @@ import java.nio.file.Path
 
 object ShareProtocol:
 
-  sealed trait Command
+  sealed trait InternalCommand_
+
+  final case class InternalMemUp_(upEvent: MemberUp) extends InternalCommand_
+
+  final case class InternalMemRm_(upEvent: MemberRemoved)
+      extends InternalCommand_
+
+  sealed trait Command extends InternalCommand_
 
   final case class RegisterFile(file: Path) extends Command
 
@@ -38,13 +45,6 @@ object ShareProtocol:
       hostNodes: Set[String],
       originalReplyTo: ActorRef[Response.FileTransferStatus]
   ) extends Command
-
-  sealed trait InternalCommand_ extends Command
-
-  final case class InternalMemUp_(upEvent: MemberUp) extends InternalCommand_
-
-  final case class InternalMemRm_(upEvent: MemberRemoved)
-      extends InternalCommand_
 
   object Response:
     sealed trait Response
