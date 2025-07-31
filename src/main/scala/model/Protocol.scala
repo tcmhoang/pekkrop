@@ -18,11 +18,12 @@ object ShareProtocol:
 
   final case class InternalMemUp_(upEvent: MemberUp) extends InternalCommand_
 
-  final case class InternalMemRm_(upEvent: MemberRemoved)
+  final case class InternalMemRm_(rmEvent: MemberRemoved)
       extends InternalCommand_
 
   sealed trait Command extends InternalCommand_
 
+  final case class Join(nodes: List[String]) extends Command
   final case class RegisterFile(file: Path) extends Command
 
   final case class ListAvailableFiles(

@@ -22,12 +22,12 @@ def main(args: Array[String]): Unit =
   import model.ShareProtocol.*
   import model.ShareProtocol.Response.*
 
-  val port = if args.nonEmpty then args(0).toInt else 0
+  val maybePort = if args.nonEmpty then args(0).toInt else 0
 
   LoggerFactory.getLogger(this.getClass).debug("SLF4J initialized early.")
 
   val config = ConfigFactory parseString s"""
-      pekko.remote.artery.canonical.port = $port
+      pekko.remote.artery.canonical.port = $maybePort
       pekko.remote.artery.canonical.hostname = "127.0.0.1"
     """ withFallback ConfigFactory.load()
 
@@ -39,6 +39,7 @@ def main(args: Array[String]): Unit =
 
   given executor: ExecutionContextExecutor = system.executionContext
 
+  val port = if maybePort == 0 then system.address.port.get else maybePort
   Files.createDirectories(Paths.get(s"downloaded_files_$port"))
   system.log.info(s"Pekkrop Node started on port $port")
   var running = true
@@ -52,11 +53,15 @@ def main(args: Array[String]): Unit =
   Future:
     while (running) {
       println(
-        s"\nNode ${system.address}: Enter command (register <file paths>, list, request <file names>, exit):"
+        s"\nNode ${system.address}: Enter command (join <node1 node2 ...>,register <file paths>, list, request <file names>, exit):"
       )
       val input = StdIn.readLine()
 
       input.split(" ").toList match
+        case "join" :: nodes if nodes.nonEmpty =>
+          system ! Join(nodes)
+          println(s"Attempting to join nodes: $nodes")
+          
         case "register" :: filePaths if filePaths.nonEmpty =>
           for filePathStr <- filePaths
           yield
@@ -106,6 +111,6 @@ def main(args: Array[String]): Unit =
 
         case _ =>
           println(
-            "Unknown command. Please use 'register <file paths>', 'list', 'request <file names>', or 'exit'."
+            "Unknown command. Please use 'join <node1 node2 ...>, register <file paths>', 'list', 'request <file names>', or 'exit'."
           )
     }

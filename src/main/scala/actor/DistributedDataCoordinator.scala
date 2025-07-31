@@ -160,6 +160,7 @@ object DistributedDataCoordinator:
               context.log.warn(
                 "Got untyped response from replicator"
               )
+              replyTo ! AvailableFiles(Map.empty)
           Behaviors.same
 
         case InternalFileRequest_(resp, fileName, replyTo) =>
@@ -182,6 +183,7 @@ object DistributedDataCoordinator:
               context.log.warn(
                 "Got untyped response from replicator"
               )
+              replyTo ! DDProtocol.Response.NotFound(fileName)
           Behaviors.same
 
         case InternalKeyUpdate_(e) =>

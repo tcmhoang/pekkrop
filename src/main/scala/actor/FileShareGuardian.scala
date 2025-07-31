@@ -1,12 +1,13 @@
 package actor
 
+import org.apache.pekko.actor.AddressFromURIString
 import org.apache.pekko.actor.typed.receptionist.Receptionist.{Find, Register}
 import org.apache.pekko.actor.typed.receptionist.{Receptionist, ServiceKey}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior, Scheduler}
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
-import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
+import org.apache.pekko.cluster.typed.{Cluster, JoinSeedNodes, Subscribe}
 import org.apache.pekko.util.Timeout
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
@@ -19,6 +20,7 @@ object FileShareGuardian:
   import model.ShareProtocol.*
   import model.ShareProtocol.Response.*
   import model.{DDProtocol, LocalFileProtocol}
+
   import scala.concurrent.duration.*
 
   def apply(): Behavior[Command] = init().narrow
@@ -84,8 +86,14 @@ object FileShareGuardian:
       sys: ActorSystem[_],
       ck: ServiceKey[Command],
       sc: Scheduler,
-      tm: Timeout = Timeout(300.milliseconds),
+      tm: Timeout = Timeout(300.milliseconds)
   ): Behavior[InternalCommand_] = command match
+    case Join(nodes) =>
+      val parsedUris =
+        nodes map AddressFromURIString.parse filterNot context.self.path.address.equals
+      Cluster(context.system).manager ! JoinSeedNodes(parsedUris)
+      Behaviors.same
+
     case RegisterFile(filePath) =>
       lm ! LocalFileProtocol
         .RegisterFile(
@@ -95,12 +103,11 @@ object FileShareGuardian:
       Behaviors.same
 
     case ListAvailableFiles(replyTo) =>
-      dd ? DDProtocol.GetFileListing.apply
+      dd ! DDProtocol.GetFileListing(replyTo)
       Behaviors.same
 
     case RequestFile(fileName, replyTo) =>
       context.log.info(s"Received request to download file: $fileName")
-
 
       val maybeAvailableHostname = (lm ? (CheckFileAvailability(fileName, _)))
         .map[Either[String, Unit]]:
