@@ -1,7 +1,7 @@
 package actor
 
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Source}
 
@@ -41,7 +41,7 @@ object FileDownloadWorker:
             Behaviors.same[DownloadCommand]
           end startDownload
 
-          validateThen(where, remoteAddress)(startDownload).getOrElse(
+          validateThen(startDownload)(where, remoteAddress) getOrElse (
             Behaviors.same[DownloadCommand]
           )
         case DownloadChunk(fileName, chunk, sequenceNr, where, isLast) =>
@@ -86,7 +86,7 @@ object FileDownloadWorker:
             Behaviors.same[DownloadCommand]
           end downloadChunk
 
-          validateThen(where, remoteAddress)(downloadChunk).getOrElse(
+          validateThen(downloadChunk)(where, remoteAddress) getOrElse (
             Behaviors.same
           )
 
@@ -112,8 +112,12 @@ object FileDownloadWorker:
           Behaviors.stopped
   end apply
 
-  private def validateThen(remoteRef: ActorRef[_], address: String)(
+  private def validateThen(
       fn: => Behavior[DownloadCommand]
+  )(
+      remoteRef: ActorRef[_],
+      address: String
   ): Option[Behavior[DownloadCommand]] =
+
     if remoteRef.path.address.toString == address then Try(fn).toOption
     else None
