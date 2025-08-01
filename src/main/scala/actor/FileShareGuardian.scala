@@ -1,11 +1,11 @@
 package actor
 
 import org.apache.pekko.actor.AddressFromURIString
+import org.apache.pekko.actor.typed.*
 import org.apache.pekko.actor.typed.receptionist.Receptionist.{Find, Register}
 import org.apache.pekko.actor.typed.receptionist.{Receptionist, ServiceKey}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
-import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior, Scheduler}
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.typed.{Cluster, JoinSeedNodes, Subscribe}
 import org.apache.pekko.util.Timeout
@@ -26,8 +26,10 @@ object FileShareGuardian:
   def apply(): Behavior[Command] = init().narrow
 
   def init(): Behavior[InternalCommand_] = Behaviors setup: context =>
+
     given key: ServiceKey[Command] = ServiceKey("pekkrop")
     context.system.receptionist ! Register(key, context.self)
+
     val memUpAdapter = context.messageAdapter[MemberUp](InternalMemUp_.apply)
     Cluster(context.system).subscriptions ! Subscribe(
       memUpAdapter,
@@ -42,14 +44,16 @@ object FileShareGuardian:
     )
 
     given dd: ActorRef[DDCommand] = context spawn (
-      DistributedDataCoordinator(),
+      Behaviors supervise DistributedDataCoordinator() onFailure SupervisorStrategy.stop,
       "distributed-data-coordinator"
     )
     context watch dd
 
     given lm: ActorRef[LocalFileCommand] =
-      context spawn (LocalFileManager(), "local-file-manager")
-
+      context spawn (
+        Behaviors supervise LocalFileManager() onFailure SupervisorStrategy.restart,
+        "local-file-manager"
+      )
     context watch lm
 
     run
@@ -59,22 +63,28 @@ object FileShareGuardian:
       lm: ActorRef[LocalFileCommand],
       ck: ServiceKey[Command]
   ): Behavior[InternalCommand_] =
-    Behaviors receive: (context, message) =>
-      given ActorSystem[_] = context.system
-      given ActorContext[InternalCommand_] = context
-      given ExecutionContextExecutor = context.system.executionContext
-      import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
+    Behaviors
+      .receive[InternalCommand_]: (context, message) =>
+        given ActorSystem[_] = context.system
 
-      message match
-        case InternalMemUp_(e) =>
-          context.log.info(s"Node is UP: ${e.member.address.hostPort}")
-          Behaviors.same
-        case InternalMemRm_(e) =>
-          context.log.info(s"Node is Removed: ${e.member.address.hostPort}")
-          dd ! DDProtocol.RemoveNodeFiles(e.member.address.hostPort)
-          Behaviors.same
+        given ActorContext[InternalCommand_] = context
 
-        case cmd: Command => handleCommand(cmd)
+        given ExecutionContextExecutor = context.system.executionContext
+        import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
+
+        message match
+          case InternalMemUp_(e) =>
+            context.log.info(s"Node is UP: ${e.member.address.hostPort}")
+            Behaviors.same
+
+          case InternalMemRm_(e) =>
+            context.log.info(s"Node is Removed: ${e.member.address.hostPort}")
+            dd ! DDProtocol.RemoveNodeFiles(e.member.address.hostPort)
+            Behaviors.same
+
+          case cmd: Command => handleCommand(cmd)
+      .receiveSignal:
+        case (_, Terminated(_)) => Behaviors.stopped
 
   private def handleCommand(
       command: Command
