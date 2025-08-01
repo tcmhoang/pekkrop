@@ -131,12 +131,10 @@ object FileShareGuardian:
             (
               dd ? (DDProtocol.GetFileLocations(fileName, _))
             ).map:
-              case Response.FileLocation(fileName, hostNodes) =>
+              case DDProtocol.Response.FileLocation(fileName, hostNodes) =>
                 Right(hostNodes)
               case _: DDProtocol.Response.NotFound =>
                 Left(s"File $fileName not found in dd")
-              case _: AvailableFiles =>
-                Left("Cannot resolved with such protocol")
 
       val currentInstances = context.system.receptionist ? Find(ck)
 
