@@ -1,17 +1,17 @@
 package actor
 
-import org.apache.pekko.actor.AddressFromURIString
 import org.apache.pekko.actor.typed.*
 import org.apache.pekko.actor.typed.receptionist.Receptionist.{Find, Register}
 import org.apache.pekko.actor.typed.receptionist.{Receptionist, ServiceKey}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
+import org.apache.pekko.actor.{Address, AddressFromURIString}
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.typed.{Cluster, JoinSeedNodes, Subscribe}
 import org.apache.pekko.util.Timeout
 
 import scala.concurrent.ExecutionContextExecutor
-import scala.util.Random
+import scala.util.{Random, Try}
 
 object FileShareGuardian:
 
@@ -96,8 +96,10 @@ object FileShareGuardian:
       tm: Timeout = Timeout(300.milliseconds)
   ): Behavior[InternalCommand_] = command match
     case Join(nodes) =>
-      val parsedUris =
-        nodes map AddressFromURIString.parse filterNot context.self.path.address.equals
+      val parsedUris: List[Address] =
+        nodes map (v =>
+          Try(AddressFromURIString.parse(v))
+        ) filter (_.isSuccess) map (_.get)
       Cluster(context.system).manager ! JoinSeedNodes(parsedUris)
       Behaviors.same
 
