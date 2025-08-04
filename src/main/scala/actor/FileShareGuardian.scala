@@ -10,7 +10,7 @@ import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.typed.{Cluster, JoinSeedNodes, Subscribe}
 import org.apache.pekko.util.Timeout
 
-import scala.concurrent.{ ExecutionContextExecutor, Future}
+import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.util.{Either, Failure, Left, Random, Right, Success}
 
 object FileShareGuardian:
@@ -120,7 +120,7 @@ object FileShareGuardian:
       given ExecutionContextExecutor = context.system.dispatchers.lookup(
         DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
       )
-      
+
       val maybeAvailableHostname = (lm ? (CheckFileAvailability(fileName, _)))
         .map[Either[String, Unit]]:
           case _: LocalFileProtocol.Response.FileFound =>
@@ -146,8 +146,7 @@ object FileShareGuardian:
             case ck.Listing(refs) =>
               InitiateDownload(
                 fileName,
-                refs.filter(ref => host.contains(ref.path.address.hostPort)),
-                replyTo
+                refs.filter(ref => host.contains(ref.path.address.hostPort))
               )
 
       val logger = context.log
@@ -158,7 +157,9 @@ object FileShareGuardian:
         case Success(mbCmd)     =>
           mbCmd match
             case Left(value) => logger warn value
-            case Right(cmd)  => self ! cmd
+            case Right(cmd)  =>
+              replyTo ! FileTransferInitiated(fileName)
+              self ! cmd
 
       Behaviors.same
 
@@ -170,7 +171,7 @@ object FileShareGuardian:
       )
       Behaviors.same
 
-    case InitiateDownload(fileName, hostNodes, replyTo) =>
+    case InitiateDownload(fileName, hostNodes) =>
       if hostNodes.isEmpty then
         context.log.warn(
           "Could not download, there's no host to chose from"
@@ -183,7 +184,6 @@ object FileShareGuardian:
           remoteNode.path.address.toString
         )
 
-        replyTo ! FileTransferInitiated(fileName)
         remoteNode ! SendFileTo(
           fileName,
           context.self.path.address.hostPort,

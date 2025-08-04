@@ -2,7 +2,6 @@ import actor.FileShareGuardian
 import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
-import org.apache.pekko.remote.WireFormats.TimeUnit
 import org.apache.pekko.util.Timeout
 import org.slf4j.LoggerFactory
 
@@ -33,7 +32,7 @@ def main(args: Array[String]): Unit =
     """ withFallback ConfigFactory.load()
 
   import scala.concurrent.duration.*
-  given Timeout = Timeout(3.seconds)
+  given Timeout = Timeout(5.seconds)
   given system: ActorSystem[ShareProtocol.Command] =
     ActorSystem(FileShareGuardian(), "pekkrop", config)
   import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
@@ -70,7 +69,7 @@ def main(args: Array[String]): Unit =
             system ! RegisterFile(
               Paths.get(filePathStr)
             )
-            
+
         case "list" :: Nil =>
           (system ? ListAvailableFiles.apply).onComplete:
             case Success(AvailableFiles(files)) =>

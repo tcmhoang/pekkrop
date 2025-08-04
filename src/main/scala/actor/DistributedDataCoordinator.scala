@@ -1,22 +1,22 @@
 package actor
 
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
-import org.apache.pekko.cluster.ddata.Replicator as UntypedReplicator
-import org.apache.pekko.cluster.ddata.typed.scaladsl.{
-  DistributedData,
-  Replicator
-}
+import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{
   ReadLocal,
   SubscribeResponse,
   WriteLocal
 }
+import org.apache.pekko.cluster.ddata.typed.scaladsl.{
+  DistributedData,
+  Replicator
+}
 import org.apache.pekko.cluster.ddata.{
   LWWMap,
   LWWMapKey,
   ORSet,
-  SelfUniqueAddress
+  SelfUniqueAddress,
+  Replicator as UntypedReplicator
 }
 
 import scala.concurrent.ExecutionContext
@@ -102,11 +102,8 @@ object DistributedDataCoordinator:
           .foldLeft(old)((m, keyWithSet) =>
             keyWithSet match
               case (key, set) =>
-                m.put(
-                  node,
-                  key,
-                  set.remove(removedHostPort)
-                )
+                val res = set.remove(removedHostPort)
+                if !res.isEmpty then m.put(node, key, res) else m.remove(node, key)
           )
       )
       Behaviors.same
