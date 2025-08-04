@@ -2,6 +2,7 @@ import actor.FileShareGuardian
 import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
+import org.apache.pekko.remote.WireFormats.TimeUnit
 import org.apache.pekko.util.Timeout
 import org.slf4j.LoggerFactory
 
@@ -63,13 +64,13 @@ def main(args: Array[String]): Unit =
           println(s"Attempting to join nodes: $nodes")
           
         case "register" :: filePaths if filePaths.nonEmpty =>
+          println(s"Attempting to register file: $filePaths")
           for filePathStr <- filePaths
           yield
             system ! RegisterFile(
               Paths.get(filePathStr)
             )
-            println(s"Attempting to register file: $filePaths")
-
+            
         case "list" :: Nil =>
           (system ? ListAvailableFiles.apply).onComplete:
             case Success(AvailableFiles(files)) =>

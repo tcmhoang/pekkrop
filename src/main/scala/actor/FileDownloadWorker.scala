@@ -1,7 +1,7 @@
 package actor
 
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.typed.{ActorRef, Behavior, DispatcherSelector}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Source}
 import org.apache.pekko.util.ByteString
@@ -20,8 +20,10 @@ object FileDownloadWorker:
       remoteAddress: String
   ): Behavior[DownloadCommand] =
     Behaviors setup: context =>
-      given ExecutionContextExecutor = context.system.executionContext
-
+      given ExecutionContextExecutor = context.system.dispatchers.lookup(
+        DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
+      )
+      
       given Materializer = Materializer(context.system)
 
       Behaviors receiveMessage:

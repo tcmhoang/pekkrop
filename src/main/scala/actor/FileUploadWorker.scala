@@ -1,7 +1,7 @@
 package actor
 
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.typed.{ActorRef, Behavior, DispatcherSelector}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Sink}
 import org.apache.pekko.util.ByteString
@@ -18,10 +18,11 @@ object FileUploadWorker:
   def apply(state: Map[String, Path]): Behavior[UploadCommand] =
     Behaviors setup:
       context =>
+        given ExecutionContextExecutor = context.system.dispatchers.lookup(
+          DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
+        )
         given Materializer = Materializer(context.system)
-
-        given ExecutionContextExecutor = context.system.executionContext
-
+        
         Behaviors receiveMessage :
           case UploadFile(fileName, recipientNode, recipientActor) =>
             state get fileName match

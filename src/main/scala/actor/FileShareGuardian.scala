@@ -10,7 +10,7 @@ import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.typed.{Cluster, JoinSeedNodes, Subscribe}
 import org.apache.pekko.util.Timeout
 
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
+import scala.concurrent.{ ExecutionContextExecutor, Future}
 import scala.util.{Either, Failure, Left, Random, Right, Success}
 
 object FileShareGuardian:
@@ -69,7 +69,6 @@ object FileShareGuardian:
 
         given ActorContext[InternalCommand_] = context
 
-        given ExecutionContextExecutor = context.system.executionContext
         import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 
         message match
@@ -92,7 +91,6 @@ object FileShareGuardian:
       dd: ActorRef[DDCommand],
       lm: ActorRef[LocalFileCommand],
       context: ActorContext[InternalCommand_],
-      ec: ExecutionContext,
       sys: ActorSystem[_],
       ck: ServiceKey[Command],
       sc: Scheduler,
@@ -119,6 +117,10 @@ object FileShareGuardian:
     case RequestFile(fileName, replyTo) =>
       context.log.info(s"Received request to download file: $fileName")
 
+      given ExecutionContextExecutor = context.system.dispatchers.lookup(
+        DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
+      )
+      
       val maybeAvailableHostname = (lm ? (CheckFileAvailability(fileName, _)))
         .map[Either[String, Unit]]:
           case _: LocalFileProtocol.Response.FileFound =>
@@ -131,7 +133,7 @@ object FileShareGuardian:
             (
               dd ? (DDProtocol.GetFileLocations(fileName, _))
             ).map:
-              case DDProtocol.Response.FileLocation(fileName, hostNodes) =>
+              case DDProtocol.Response.FileLocation(_, hostNodes) =>
                 Right(hostNodes)
               case _: DDProtocol.Response.NotFound =>
                 Left(s"File $fileName not found in dd")
