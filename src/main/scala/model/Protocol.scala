@@ -31,7 +31,6 @@ object ShareProtocol:
 
   final case class RequestFile(
       file: String,
-      replyTo: ActorRef[Response.FileTransferStatus]
   ) extends Command
 
   final case class SendFileTo(
@@ -48,21 +47,8 @@ object ShareProtocol:
   object Response:
     sealed trait Response extends PSerializable
 
-    sealed trait FileTransferStatus extends Response
-
-    final case class FileTransferInitiated(file: String)
-        extends FileTransferStatus
-
-    final case class FileTransferCompleted(file: String, localPath: Path)
-        extends FileTransferStatus
-
-    final case class FileTransferFailed(file: String, reason: String)
-        extends FileTransferStatus
-
     final case class AvailableFiles(files: Map[String, Set[String]])
         extends Response
-
-    final case class FileNotAvailable(file: String) extends FileTransferStatus
   end Response
 
 end ShareProtocol

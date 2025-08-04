@@ -10,15 +10,14 @@ import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
 import org.apache.pekko.cluster.typed.{Cluster, JoinSeedNodes, Subscribe}
 import org.apache.pekko.util.Timeout
 
-import scala.concurrent.{ExecutionContextExecutor, Future}
-import scala.util.{Either, Failure, Left, Random, Right, Success}
+import scala.concurrent.ExecutionContextExecutor
+import scala.util.Random
 
 object FileShareGuardian:
 
   import model.DDProtocol.{DDCommand, Response}
-  import model.LocalFileProtocol.{CheckFileAvailability, LocalFileCommand}
+  import model.LocalFileProtocol.LocalFileCommand
   import model.ShareProtocol.*
-  import model.ShareProtocol.Response.*
   import model.{DDProtocol, LocalFileProtocol}
 
   import scala.concurrent.duration.*
@@ -114,60 +113,51 @@ object FileShareGuardian:
       dd ! DDProtocol.GetFileListing(replyTo)
       Behaviors.same
 
-    case RequestFile(fileName, replyTo) =>
+    case RequestFile(fileName) =>
       context.log.info(s"Received request to download file: $fileName")
 
       given ExecutionContextExecutor = context.system.dispatchers.lookup(
         DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
       )
 
-      val maybeAvailableHostname = (lm ? (CheckFileAvailability(fileName, _)))
-        .map[Either[String, Unit]]:
-          case _: LocalFileProtocol.Response.FileFound =>
-            Left(s"File $fileName already existed in local node, abort!")
-          case _: LocalFileProtocol.Response.FileNotFound => Right(())
-        .flatMap[Either[String, Set[String]]]:
-          case Left(expectedFailure) =>
-            Future.successful(Left(expectedFailure))
-          case _: Right[_, _] =>
-            (
-              dd ? (DDProtocol.GetFileLocations(fileName, _))
-            ).map:
-              case DDProtocol.Response.FileLocation(_, hostNodes) =>
-                Right(hostNodes)
-              case _: DDProtocol.Response.NotFound =>
-                Left(s"File $fileName not found in dd")
+      val checkLocalResult =
+        lm ? (LocalFileProtocol.CheckFileAvailability(fileName, _))
+      val checkDDResult = dd ? (DDProtocol.GetFileLocations(fileName, _))
 
       val currentInstances = context.system.receptionist ? Find(ck)
 
-      val maybeCommand: Future[Either[String, InitiateDownload]] =
-        for (mbHosts <- maybeAvailableHostname; ins <- currentInstances)
-          yield for host <- mbHosts yield ins match
-            case ck.Listing(refs) =>
-              InitiateDownload(
-                fileName,
-                refs.filter(ref => host.contains(ref.path.address.hostPort))
-              )
-
       val logger = context.log
-      val self = context.self
 
-      maybeCommand.onComplete:
-        case Failure(exception) => logger error exception.getMessage
-        case Success(mbCmd)     =>
-          mbCmd match
-            case Left(value) => logger warn value
-            case Right(cmd)  =>
-              replyTo ! FileTransferInitiated(fileName)
-              self ! cmd
-
+      for (
+        localResult <- checkLocalResult;
+        ddRes <- checkDDResult;
+        ins <- currentInstances
+      )
+        yield localResult match
+          case _: LocalFileProtocol.Response.FileFound =>
+            logger.warn(
+              s"File $fileName already existed in local node, abort!"
+            )
+          case _: LocalFileProtocol.Response.FileNotFound =>
+            ddRes match
+              case _: DDProtocol.Response.NotFound =>
+                logger.warn(
+                  s"$fileName not exist in current cluster, please request again!"
+                )
+              case DDProtocol.Response.FileLocation(_, hosts) =>
+                ins match
+                  case ck.Listing(refs) =>
+                    context.self ! InitiateDownload(
+                      fileName,
+                      refs.filter(ref =>
+                        hosts.contains(ref.path.address.hostPort)
+                      )
+                    )
       Behaviors.same
 
-    case SendFileTo(fileName, recipientNode, recipientActor) =>
-      lm ! LocalFileProtocol.SendFileTo(
-        fileName,
-        recipientNode,
-        recipientActor
+    case resp: SendFileTo =>
+      lm ! LocalFileProtocol.SendFileTo.apply.tupled(
+        Tuple.fromProductTyped(resp)
       )
       Behaviors.same
 

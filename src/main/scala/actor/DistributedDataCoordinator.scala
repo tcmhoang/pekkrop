@@ -154,7 +154,7 @@ object DistributedDataCoordinator:
               replyTo ! AvailableFiles(Map.empty)
             case UntypedReplicator.GetSuccess(_, _) |
                 UntypedReplicator.GetDataDeleted(_, _) =>
-              context.log.warn(
+              context.log.debug(
                 "Got untyped response from replicator"
               )
               replyTo ! AvailableFiles(Map.empty)
@@ -177,7 +177,7 @@ object DistributedDataCoordinator:
                 UntypedReplicator.GetFailure(_, _) |
                 UntypedReplicator.GetSuccess(_, _) |
                 UntypedReplicator.GetDataDeleted(_, _) =>
-              context.log.warn(
+              context.log.debug(
                 "Got untyped response from replicator"
               )
               replyTo ! DDProtocol.Response.NotFound(fileName)

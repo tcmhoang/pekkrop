@@ -88,21 +88,7 @@ def main(args: Array[String]): Unit =
         case "request" :: fileNames if fileNames.nonEmpty =>
           println(s"Requesting files: $fileNames")
           for fileName <- fileNames
-          yield (system ? (RequestFile(fileName, _))).onComplete:
-            case Success(status) =>
-              status match
-                case FileTransferInitiated(name) =>
-                  println(
-                    s"File transfer initiated for $name. Check 'downloaded_files_$port' directory."
-                  )
-                case FileTransferCompleted(name, path) =>
-                  println(s"File $name successfully downloaded to $path.")
-                case FileTransferFailed(name, reason) =>
-                  println(s"File transfer failed for $name: $reason")
-                case FileNotAvailable(name) =>
-                  println(s"File $name is not available in the cluster.")
-            case Failure(ex) =>
-              println(s"Error requesting file $fileName: ${ex.getMessage}")
+          yield (system ! (RequestFile(fileName)))
 
         case "exit" :: Nil =>
           running = false
