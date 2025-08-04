@@ -40,7 +40,7 @@ object FileUploadWorker:
                     case (seqNr, chunk) =>
                       recipientActor ! DownloadChunk(
                         fileName,
-                        chunk,
+                        chunk.toVector,
                         seqNr + 1,
                         context.self,
                         isLast = false
@@ -50,7 +50,7 @@ object FileUploadWorker:
                     _.map: lastIdx =>
                       recipientActor ! DownloadChunk(
                         fileName,
-                        ByteString.empty,
+                        Vector.empty[Byte],
                         lastIdx + 1,
                         context.self,
                         true

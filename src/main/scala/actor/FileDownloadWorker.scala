@@ -4,6 +4,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Source}
+import org.apache.pekko.util.ByteString
 
 import java.nio.file.{Files, Paths, StandardCopyOption, StandardOpenOption}
 import scala.concurrent.ExecutionContextExecutor
@@ -54,10 +55,11 @@ object FileDownloadWorker:
                 s"Temporary file for $fileName not found. Cannot write chunk."
               )
             else
-              val futureWrite = Source single chunk runWith FileIO.toPath(
-                tempFilePath,
-                Set(StandardOpenOption.APPEND)
-              )
+              val futureWrite =
+                Source single ByteString(chunk) runWith FileIO.toPath(
+                  tempFilePath,
+                  Set(StandardOpenOption.APPEND)
+                )
               val logger = context.log
               val self = context.self
               val port = context.system.address.port.get
@@ -80,6 +82,7 @@ object FileDownloadWorker:
                       case ex: Exception =>
                         logger error s"Failed to move temporary file for $fileName: ${ex.getMessage}"
                         self ! DownloadError(fileName, ex.getMessage)
+                  end if
                 case Failure(ex) =>
                   logger error s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}"
                   self ! DownloadError(fileName, ex.getMessage)

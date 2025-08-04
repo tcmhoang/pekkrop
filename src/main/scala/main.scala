@@ -13,7 +13,7 @@ import scala.util.{CommandLineParser, Failure, Success}
 
 given FromString[Array[String]] with
   def fromString(s: String): Array[String] =
-    s split (',') map (_.trim) filter (_.nonEmpty)
+    s split ',' map (_.trim) filter (_.nonEmpty)
 
 @main
 def main(args: Array[String]): Unit =

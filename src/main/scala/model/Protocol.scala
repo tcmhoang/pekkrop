@@ -8,13 +8,12 @@ import org.apache.pekko.cluster.ddata.typed.scaladsl.Replicator.{
   UpdateResponse
 }
 import org.apache.pekko.cluster.ddata.{LWWMap, ORSet}
-import org.apache.pekko.util.ByteString
 
 import java.nio.file.Path
 
 object ShareProtocol:
 
-  sealed trait InternalCommand_
+  sealed trait InternalCommand_ extends PSerializable
 
   final case class InternalMemUp_(upEvent: MemberUp) extends InternalCommand_
 
@@ -48,7 +47,7 @@ object ShareProtocol:
   ) extends Command
 
   object Response:
-    sealed trait Response
+    sealed trait Response extends PSerializable
 
     sealed trait FileTransferStatus extends Response
 
@@ -151,11 +150,11 @@ end LocalFileProtocol
 
 object DownloadProtocol:
 
-  sealed trait DownloadCommand
+  sealed trait DownloadCommand extends PSerializable
 
   final case class DownloadChunk(
       file: String,
-      chunk: ByteString,
+      chunk: Vector[Byte],
       sequenceNr: Long,
       where: ActorRef[UploadProtocol.UploadCommand],
       isLast: Boolean

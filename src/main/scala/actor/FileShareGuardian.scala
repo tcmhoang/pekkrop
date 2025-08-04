@@ -44,7 +44,7 @@ object FileShareGuardian:
     )
 
     given dd: ActorRef[DDCommand] = context spawn (
-      Behaviors supervise DistributedDataCoordinator() onFailure SupervisorStrategy.stop,
+      Behaviors supervise DistributedDataCoordinator() onFailure SupervisorStrategy.restart,
       "distributed-data-coordinator"
     )
     context watch dd
