@@ -22,7 +22,6 @@ object ShareProtocol:
 
   sealed trait Command extends InternalCommand_
 
-  final case class Join(nodes: List[String]) extends Command
   final case class RegisterFile(file: Path) extends Command
 
   final case class ListAvailableFiles(
@@ -30,7 +29,7 @@ object ShareProtocol:
   ) extends Command
 
   final case class RequestFile(
-      file: String,
+      file: String
   ) extends Command
 
   final case class SendFileTo(
@@ -41,7 +40,7 @@ object ShareProtocol:
 
   final case class InitiateDownload(
       fileName: String,
-      hostNodes: Set[ActorRef[Command]],
+      hostNodes: Set[ActorRef[Command]]
   ) extends Command
 
   object Response:

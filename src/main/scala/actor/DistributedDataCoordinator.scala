@@ -103,7 +103,8 @@ object DistributedDataCoordinator:
             keyWithSet match
               case (key, set) =>
                 val res = set.remove(removedHostPort)
-                if !res.isEmpty then m.put(node, key, res) else m.remove(node, key)
+                if !res.isEmpty then m.put(node, key, res)
+                else m.remove(node, key)
           )
       )
       Behaviors.same

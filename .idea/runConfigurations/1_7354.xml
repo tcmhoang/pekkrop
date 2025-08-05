@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="7354" type="Application" factoryName="Application">
+  <configuration default="false" name="1-7354" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="main" />
     <module name="pekkrop.main" />
     <option name="PROGRAM_PARAMETERS" value="7354" />

@@ -1,8 +1,8 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="7355" type="Application" factoryName="Application">
+  <configuration default="false" name="1-7355" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="main" />
     <module name="pekkrop.main" />
-    <option name="PROGRAM_PARAMETERS" value="&quot;7355&quot;" />
+    <option name="PROGRAM_PARAMETERS" value="7355" />
     <method v="2">
       <option name="Make" enabled="true" />
     </method>

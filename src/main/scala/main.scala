@@ -5,7 +5,7 @@ import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.util.Timeout
 import org.slf4j.LoggerFactory
 
-import java.nio.file.{Files, Paths}
+import java.nio.file.Paths
 import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.io.StdIn
 import scala.util.CommandLineParser.FromString
@@ -13,7 +13,11 @@ import scala.util.{CommandLineParser, Failure, Success}
 
 given FromString[Array[String]] with
   def fromString(s: String): Array[String] =
-    s split ',' map (_.trim) filter (_.nonEmpty)
+    s split ' ' map (_.trim) filter (_.nonEmpty)
+
+val defaultPort = 0
+val localHost = "127.0.0.1"
+val authority = "pekkrop"
 
 @main
 def main(args: Array[String]): Unit =
@@ -22,25 +26,31 @@ def main(args: Array[String]): Unit =
   import model.ShareProtocol.*
   import model.ShareProtocol.Response.*
 
-  val maybePort = if args.nonEmpty then args(0).toInt else 0
+  val (maybePort, host) = args.toList match
+    case port :: host :: Nil =>
+      (port.toIntOption.getOrElse(defaultPort), host)
+    case port :: Nil =>
+      (port.toIntOption.getOrElse(defaultPort), localHost)
+    case _ => (defaultPort, localHost)
 
   LoggerFactory.getLogger(this.getClass).debug("SLF4J initialized early.")
 
   val config = ConfigFactory parseString s"""
       pekko.remote.artery.canonical.port = $maybePort
-      pekko.remote.artery.canonical.hostname = "127.0.0.1"
+      pekko.remote.artery.canonical.hostname = "$host"
     """ withFallback ConfigFactory.load()
 
   import scala.concurrent.duration.*
   given Timeout = Timeout(5.seconds)
   given system: ActorSystem[ShareProtocol.Command] =
-    ActorSystem(FileShareGuardian(), "pekkrop", config)
+    ActorSystem(FileShareGuardian(), authority, config)
   import org.apache.pekko.actor.typed.scaladsl.AskPattern.schedulerFromActorSystem
 
   given executor: ExecutionContextExecutor = system.executionContext
 
-  val port = if maybePort == 0 then system.address.port.get else maybePort
-  Files.createDirectories(Paths.get(s"downloaded_files_$port"))
+  val port =
+    if maybePort == 0 then system.address.port.get else maybePort
+
   system.log.info(s"Pekkrop Node started on port $port")
   var running = true
   system.whenTerminated.onComplete: _ =>
@@ -58,17 +68,12 @@ def main(args: Array[String]): Unit =
       val input = StdIn.readLine()
 
       input.split(" ").toList match
-        case "join" :: nodes if nodes.nonEmpty =>
-          system ! Join(nodes)
-          println(s"Attempting to join nodes: $nodes")
-          
         case "register" :: filePaths if filePaths.nonEmpty =>
           println(s"Attempting to register file: $filePaths")
           for filePathStr <- filePaths
-          yield
-            system ! RegisterFile(
-              Paths.get(filePathStr)
-            )
+          yield system ! RegisterFile(
+            Paths.get(filePathStr)
+          )
 
         case "list" :: Nil =>
           (system ? ListAvailableFiles.apply).onComplete:
@@ -88,7 +93,7 @@ def main(args: Array[String]): Unit =
         case "request" :: fileNames if fileNames.nonEmpty =>
           println(s"Requesting files: $fileNames")
           for fileName <- fileNames
-          yield (system ! (RequestFile(fileName)))
+          yield system ! RequestFile(fileName)
 
         case "exit" :: Nil =>
           running = false

@@ -23,8 +23,11 @@ object FileDownloadWorker:
       given ExecutionContextExecutor = context.system.dispatchers.lookup(
         DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
       )
-      
+
       given Materializer = Materializer(context.system)
+
+      val currentPath =
+        s"downloaded_files_${context.system.address.host.get}_${context.system.address.port.get}"
 
       Behaviors receiveMessage:
         case DownloadStart(fileName, fileSize, where) =>
@@ -33,7 +36,7 @@ object FileDownloadWorker:
               s"Starting download of file: $fileName (size: $fileSize bytes)"
             )
             val tempFilePath = Paths.get(
-              s"downloaded_files_${context.system.address.port.get}/$fileName.tmp"
+              s"$currentPath/$fileName.tmp"
             )
             Files.createDirectories(tempFilePath.getParent)
             if (Files.exists(tempFilePath)) Files.delete(tempFilePath)
@@ -44,13 +47,12 @@ object FileDownloadWorker:
             Behaviors.same[DownloadCommand]
           end startDownload
 
-          validateThen(startDownload)(where, remoteAddress) getOrElse (
-            Behaviors.same[DownloadCommand]
-          )
+          validateThen(startDownload)(where, remoteAddress) getOrElse Behaviors
+            .same[DownloadCommand]
         case DownloadChunk(fileName, chunk, sequenceNr, where, isLast) =>
           lazy val downloadChunk: Behavior[DownloadCommand] =
             val tempFilePath = Paths.get(
-              s"downloaded_files_${context.system.address.port.get}/$fileName.tmp"
+              s"$currentPath/$fileName.tmp"
             )
             if !Files.exists(tempFilePath) then
               context.log.error(
@@ -71,7 +73,7 @@ object FileDownloadWorker:
                   if isLast then
                     logger info s"Received last chunk for $fileName. Finalizing transfer."
                     val finalPath =
-                      Paths.get(s"downloaded_files_$port/$fileName")
+                      Paths.get(s"$currentPath/$fileName")
                     Try:
                       Files.move(
                         tempFilePath,
@@ -91,9 +93,10 @@ object FileDownloadWorker:
             Behaviors.same[DownloadCommand]
           end downloadChunk
 
-          validateThen(downloadChunk)(where, remoteAddress) getOrElse (
-            Behaviors.same
-          )
+          validateThen(downloadChunk)(
+            where,
+            remoteAddress
+          ) getOrElse Behaviors.same
 
         case DownloadFinished(path, replyTo) =>
           context.log.info(s"File transfer for $path completed by sender.")
@@ -103,7 +106,7 @@ object FileDownloadWorker:
         case DownloadError(fileName, reason) =>
           context.log.error(s"File transfer for $fileName failed: $reason")
           val tempFilePath = Paths.get(
-            s"downloaded_files_${context.system.address.port.get}/$fileName.tmp"
+            s"$currentPath/$fileName.tmp"
           )
           if Files.exists(tempFilePath) then
             Try:

@@ -5,13 +5,12 @@ import org.apache.pekko.actor.typed.receptionist.Receptionist.{Find, Register}
 import org.apache.pekko.actor.typed.receptionist.{Receptionist, ServiceKey}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.Askable
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
-import org.apache.pekko.actor.{Address, AddressFromURIString}
 import org.apache.pekko.cluster.ClusterEvent.{MemberRemoved, MemberUp}
-import org.apache.pekko.cluster.typed.{Cluster, JoinSeedNodes, Subscribe}
+import org.apache.pekko.cluster.typed.{Cluster, Subscribe}
 import org.apache.pekko.util.Timeout
 
 import scala.concurrent.ExecutionContextExecutor
-import scala.util.{Random, Try}
+import scala.util.Random
 
 object FileShareGuardian:
 
@@ -95,14 +94,6 @@ object FileShareGuardian:
       sc: Scheduler,
       tm: Timeout = Timeout(300.milliseconds)
   ): Behavior[InternalCommand_] = command match
-    case Join(nodes) =>
-      val parsedUris: List[Address] =
-        nodes map (v =>
-          Try(AddressFromURIString.parse(v))
-        ) filter (_.isSuccess) map (_.get)
-      Cluster(context.system).manager ! JoinSeedNodes(parsedUris)
-      Behaviors.same
-
     case RegisterFile(filePath) =>
       lm ! LocalFileProtocol
         .RegisterFile(
@@ -137,15 +128,11 @@ object FileShareGuardian:
       )
         yield localResult match
           case _: LocalFileProtocol.Response.FileFound =>
-            logger.warn(
-              s"File $fileName already existed in local node, abort!"
-            )
+            logger warn s"File $fileName already existed in local node, abort!"
           case _: LocalFileProtocol.Response.FileNotFound =>
             ddRes match
               case _: DDProtocol.Response.NotFound =>
-                logger.warn(
-                  s"$fileName not exist in current cluster, please request again!"
-                )
+                logger warn s"$fileName not exist in current cluster, please request again!"
               case DDProtocol.Response.FileLocation(_, hosts) =>
                 ins match
                   case ck.Listing(refs) =>
