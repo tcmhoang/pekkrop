@@ -1,6 +1,6 @@
 package actor
 
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.actor.typed.scaladsl.{Behaviors, TimerScheduler}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, DispatcherSelector}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Source}
@@ -8,6 +8,7 @@ import org.apache.pekko.util.ByteString
 
 import java.nio.file.{Files, Paths, StandardCopyOption, StandardOpenOption}
 import scala.concurrent.ExecutionContextExecutor
+import scala.concurrent.duration.*
 import scala.util.{Failure, Success, Try}
 
 object FileDownloadWorker:
@@ -16,10 +17,30 @@ object FileDownloadWorker:
   import model.ShareProtocol.RegisterFile
 
   def apply(
+      fileName: String,
       replyTo: ActorRef[RegisterFile],
       remoteAddress: String
   ): Behavior[DownloadCommand] =
-    Behaviors setup: context =>
+    val downloadIdleTimerKey = s"download-$remoteAddress-$fileName"
+    Behaviors withTimers: timers =>
+      timers startSingleTimer (
+        downloadIdleTimerKey,
+        DownloadError(
+          fileName,
+          s"Exceeding waiting time for warming up to download $fileName, shutting down"
+        ),
+        10.seconds
+      )
+      run(timers, downloadIdleTimerKey, replyTo, remoteAddress, fileName)
+
+  private def run(
+      timers: TimerScheduler[DownloadCommand],
+      timerKey: String,
+      replyTo: ActorRef[RegisterFile],
+      remoteAddress: String,
+      originFileName: String
+  ) =
+    Behaviors.setup[DownloadCommand]: context =>
       given ExecutionContextExecutor = context.system.dispatchers.lookup(
         DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
       )
@@ -32,6 +53,14 @@ object FileDownloadWorker:
       Behaviors receiveMessage:
         case DownloadStart(fileName, fileSize, where) =>
           lazy val startDownload =
+            timers startSingleTimer (
+              timerKey,
+              DownloadError(
+                fileName,
+                s"Exceeding waiting time to download $fileName from ${where.path.address.toString}, shutting down"
+              ),
+              5.seconds
+            )
             context.log.info(
               s"Starting download of file: $fileName (size: $fileSize bytes)"
             )
@@ -47,10 +76,23 @@ object FileDownloadWorker:
             Behaviors.same[DownloadCommand]
           end startDownload
 
-          validateThen(startDownload)(where, remoteAddress) getOrElse Behaviors
+          validateThen(startDownload)(
+            where,
+            remoteAddress,
+            originFileName,
+            fileName
+          ) getOrElse Behaviors
             .same[DownloadCommand]
         case DownloadChunk(fileName, chunk, sequenceNr, where, isLast) =>
           lazy val downloadChunk: Behavior[DownloadCommand] =
+            timers startSingleTimer (
+              timerKey,
+              DownloadError(
+                fileName,
+                s"Exceeding waiting time for download chunk $sequenceNr for $fileName from ${where.path.address.toString}, shutting down"
+              ),
+              15.seconds
+            )
             val tempFilePath = Paths.get(
               s"$currentPath/$fileName.tmp"
             )
@@ -95,7 +137,9 @@ object FileDownloadWorker:
 
           validateThen(downloadChunk)(
             where,
-            remoteAddress
+            remoteAddress,
+            originFileName,
+            fileName
           ) getOrElse Behaviors.same
 
         case DownloadFinished(path, replyTo) =>
@@ -118,14 +162,17 @@ object FileDownloadWorker:
                   s"Failed to delete temporary file for $fileName: ${ex.getMessage}"
                 )
           Behaviors.stopped
-  end apply
+  end run
 
   private def validateThen(
       fn: => Behavior[DownloadCommand]
   )(
       remoteRef: ActorRef[_],
-      address: String
+      address: String,
+      originalFileName: String,
+      fileName: String
   ): Option[Behavior[DownloadCommand]] =
 
-    if remoteRef.path.address.toString == address then Try(fn).toOption
+    if remoteRef.path.address.toString == address && fileName == originalFileName
+    then Try(fn).toOption
     else None

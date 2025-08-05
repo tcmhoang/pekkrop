@@ -159,6 +159,7 @@ object FileShareGuardian:
         val chosen = Random nextInt hostNodes.size
         val remoteNode = hostNodes toList chosen
         val workerRef = context spawnAnonymous FileDownloadWorker(
+          fileName,
           context.self,
           remoteNode.path.address.toString
         )

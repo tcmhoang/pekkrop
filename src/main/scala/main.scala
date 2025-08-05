@@ -63,7 +63,7 @@ def main(args: Array[String]): Unit =
   Future:
     while (running) {
       println(
-        s"\nNode ${system.address}: Enter command (join <node1 node2 ...>,register <file paths>, list, request <file names>, exit):"
+        s"\nNode ${system.address}: Enter command (register <file paths>, list, request <file names>, exit):"
       )
       val input = StdIn.readLine()
 
@@ -102,6 +102,6 @@ def main(args: Array[String]): Unit =
 
         case _ =>
           println(
-            "Unknown command. Please use 'join <node1 node2 ...>, register <file paths>', 'list', 'request <file names>', or 'exit'."
+            "Unknown command. Please use 'register <file paths>', 'list', 'request <file names>', or 'exit'."
           )
     }
