@@ -32,12 +32,10 @@ object LocalFileManager:
             val fileName = filePath.getFileName.toString
             if Files.exists(filePath) && Files.isReadable(filePath) then
               replyTo ! DDProtocol.RegisterFile(fileName, node)
-              context.log.info(s"Registered local file: $fileName at $filePath")
+              context.log info s"Registered local file: $fileName at $filePath"
               run(localFiles + (fileName -> filePath))
             else
-              context.log.warn(
-                s"Cannot register file: $filePath. It does not exist or is not readable."
-              )
+              context.log warn s"Cannot register file: $filePath. It does not exist or is not readable."
               Behaviors.same
 
           case SendFileTo(fileName, recipientNode, recipientActor) =>
@@ -53,7 +51,7 @@ object LocalFileManager:
                   recipientActor
                 )
               case None =>
-                context.log.warn(s"Requested to send non-local file: $fileName")
+                context.log warn s"Requested to send non-local file: $fileName"
             Behaviors.same
 
           case CheckFileAvailability(fileName, replyTo) =>
@@ -63,5 +61,5 @@ object LocalFileManager:
             Behaviors.same
       .receiveSignal:
         case (context, Terminated(_)) =>
-          context.log.info("Upload worker's done w/ update, killed!")
+          context.log info "Upload worker's done w/ update, killed!"
           Behaviors.same

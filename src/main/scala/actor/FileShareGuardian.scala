@@ -71,11 +71,11 @@ object FileShareGuardian:
 
         message match
           case InternalMemUp_(e) =>
-            context.log.info(s"Node is UP: ${e.member.address.hostPort}")
+            context.log info s"Node is UP: ${e.member.address.hostPort}"
             Behaviors.same
 
           case InternalMemRm_(e) =>
-            context.log.info(s"Node is Removed: ${e.member.address.hostPort}")
+            context.log info s"Node is Removed: ${e.member.address.hostPort}"
             dd ! DDProtocol.RemoveNodeFiles(e.member.address.hostPort)
             Behaviors.same
 
@@ -89,7 +89,6 @@ object FileShareGuardian:
       dd: ActorRef[DDCommand],
       lm: ActorRef[LocalFileCommand],
       context: ActorContext[InternalCommand_],
-      sys: ActorSystem[_],
       ck: ServiceKey[Command],
       sc: Scheduler,
       tm: Timeout = Timeout(300.milliseconds)
@@ -107,7 +106,7 @@ object FileShareGuardian:
       Behaviors.same
 
     case RequestFile(fileName) =>
-      context.log.info(s"Received request to download file: $fileName")
+      context.log info s"Received request to download file: $fileName"
 
       given ExecutionContextExecutor = context.system.dispatchers.lookup(
         DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
@@ -115,33 +114,32 @@ object FileShareGuardian:
 
       val checkLocalResult =
         lm ? (LocalFileProtocol.CheckFileAvailability(fileName, _))
+
       val checkDDResult = dd ? (DDProtocol.GetFileLocations(fileName, _))
 
       val currentInstances = context.system.receptionist ? Find(ck)
-
-      val logger = context.log
 
       for (
         localResult <- checkLocalResult;
         ddRes <- checkDDResult;
         ins <- currentInstances
-      )
-        yield localResult match
-          case _: LocalFileProtocol.Response.FileFound =>
-            logger warn s"File $fileName already existed in local node, abort!"
-          case _: LocalFileProtocol.Response.FileNotFound =>
-            ddRes match
-              case _: DDProtocol.Response.NotFound =>
-                logger warn s"$fileName not exist in current cluster, please request again!"
-              case DDProtocol.Response.FileLocation(_, hosts) =>
-                ins match
-                  case ck.Listing(refs) =>
-                    context.self ! InitiateDownload(
-                      fileName,
-                      refs.filter(ref =>
-                        hosts.contains(ref.path.address.hostPort)
-                      )
+      ) yield localResult match
+        case _: LocalFileProtocol.Response.FileFound =>
+          context.log warn s"File $fileName already existed in local node, abort!"
+        case _: LocalFileProtocol.Response.FileNotFound =>
+          ddRes match
+            case _: DDProtocol.Response.NotFound =>
+              context.log warn s"$fileName not exist in current cluster, please request again!"
+            case DDProtocol.Response.FileLocation(_, hosts) =>
+              ins match
+                case ck.Listing(refs) =>
+                  context.self ! InitiateDownload(
+                    fileName,
+                    refs.filter(ref =>
+                      hosts.contains(ref.path.address.hostPort)
                     )
+                  )
+
       Behaviors.same
 
     case resp: SendFileTo =>
@@ -152,9 +150,7 @@ object FileShareGuardian:
 
     case InitiateDownload(fileName, hostNodes) =>
       if hostNodes.isEmpty then
-        context.log.warn(
-          "Could not download, there's no host to chose from"
-        )
+        context.log warn "Could not download, there's no host to chose from"
       else
         val chosen = Random nextInt hostNodes.size
         val remoteNode = hostNodes toList chosen

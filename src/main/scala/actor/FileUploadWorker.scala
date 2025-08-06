@@ -27,9 +27,7 @@ object FileUploadWorker:
           case UploadFile(fileName, recipientNode, recipientActor) =>
             state get fileName match
               case Some(filePath) =>
-                context.log.info(
-                  s"Initiating transfer of $fileName to $recipientNode"
-                )
+                context.log info s"Initiating transfer of $fileName to $recipientNode"
                 val fileSize = Files size filePath
                 recipientActor ! DownloadStart(fileName, fileSize, context.self)
 
@@ -59,14 +57,10 @@ object FileUploadWorker:
 
                 source runWith fileSink onComplete :
                   case Success(_) =>
-                    logger.info(
-                      s"Successfully streamed file $fileName to $recipientNode"
-                    )
+                    logger info s"Successfully streamed file $fileName to $recipientNode"
                   case Failure(ex) =>
                     logger error s"Error in file streaming pipeline for $fileName to $recipientNode: ${ex.getMessage}"
               case None =>
-                context.log.warn(
-                  s"Requested file $fileName not found locally for sending."
-                )
+                context.log warn s"Requested file $fileName not found locally for sending."
             Behaviors.stopped
     

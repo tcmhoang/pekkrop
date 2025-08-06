@@ -16,6 +16,8 @@ object FileDownloadWorker:
   import model.DownloadProtocol.*
   import model.ShareProtocol.RegisterFile
 
+  opaque type DownloadPath = String
+
   def apply(
       fileName: String,
       replyTo: ActorRef[RegisterFile],
@@ -31,26 +33,31 @@ object FileDownloadWorker:
         ),
         10.seconds
       )
-      run(timers, downloadIdleTimerKey, replyTo, remoteAddress, fileName)
+      given (TimerScheduler[DownloadCommand], String) =
+        (timers, downloadIdleTimerKey)
 
-  private def run(
-      timers: TimerScheduler[DownloadCommand],
-      timerKey: String,
-      replyTo: ActorRef[RegisterFile],
+      given ActorRef[RegisterFile] = replyTo
+      warmingUp(remoteAddress, fileName)
+
+  private def warmingUp(
       remoteAddress: String,
       originFileName: String
+  )(using
+      timersWithKey: (TimerScheduler[DownloadCommand], String),
+      replyTo: ActorRef[RegisterFile]
   ) =
     Behaviors.setup[DownloadCommand]: context =>
       given ExecutionContextExecutor = context.system.dispatchers.lookup(
         DispatcherSelector.fromConfig("pekko.actor.cpu-bound-dispatcher")
       )
-
       given Materializer = Materializer(context.system)
 
-      val currentPath =
+      val (timers, timerKey) = timersWithKey
+
+      given currentPath: DownloadPath =
         s"downloaded_files_${context.system.address.host.get}_${context.system.address.port.get}"
 
-      Behaviors receiveMessage:
+      Behaviors receiveMessagePartial:
         case DownloadStart(fileName, fileSize, where) =>
           lazy val startDownload =
             timers startSingleTimer (
@@ -71,9 +78,7 @@ object FileDownloadWorker:
             if (Files.exists(tempFilePath)) Files.delete(tempFilePath)
             Files.createFile(tempFilePath)
 
-            val sink =
-              FileIO toPath (tempFilePath, Set(StandardOpenOption.APPEND))
-            Behaviors.same[DownloadCommand]
+            download(remoteAddress, originFileName)
           end startDownload
 
           validateThen(startDownload)(
@@ -82,7 +87,19 @@ object FileDownloadWorker:
             originFileName,
             fileName
           ) getOrElse Behaviors
-            .same[DownloadCommand]
+            .unhandled[DownloadCommand]
+  end warmingUp
+
+  private def download(remoteAddress: String, originFileName: String)(using
+      timersWithKey: (TimerScheduler[DownloadCommand], String),
+      currentPath: DownloadPath,
+      mat: Materializer,
+      replyTo: ActorRef[RegisterFile],
+      ec: ExecutionContextExecutor
+  ): Behavior[DownloadCommand] =
+    val (timers, timerKey) = timersWithKey
+    Behaviors.receive: (context, message) =>
+      message match
         case DownloadChunk(fileName, chunk, sequenceNr, where, isLast) =>
           lazy val downloadChunk: Behavior[DownloadCommand] =
             timers startSingleTimer (
@@ -97,18 +114,22 @@ object FileDownloadWorker:
               s"$currentPath/$fileName.tmp"
             )
             if !Files.exists(tempFilePath) then
-              context.log.error(
+              context.self ! DownloadError(
+                fileName,
                 s"Temporary file for $fileName not found. Cannot write chunk."
               )
+              shutdown
             else
               val futureWrite =
                 Source single ByteString(chunk) runWith FileIO.toPath(
                   tempFilePath,
                   Set(StandardOpenOption.APPEND)
                 )
+
               val logger = context.log
               val self = context.self
               val port = context.system.address.port.get
+
               futureWrite.onComplete:
                 case Success(_) =>
                   logger debug s"Written chunk $sequenceNr for $fileName"
@@ -132,7 +153,9 @@ object FileDownloadWorker:
                 case Failure(ex) =>
                   logger error s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}"
                   self ! DownloadError(fileName, ex.getMessage)
-            Behaviors.same[DownloadCommand]
+
+              if isLast then shutdown else Behaviors.same
+
           end downloadChunk
 
           validateThen(downloadChunk)(
@@ -140,8 +163,15 @@ object FileDownloadWorker:
             remoteAddress,
             originFileName,
             fileName
-          ) getOrElse Behaviors.same
+          ) getOrElse Behaviors.ignore
+        case _ => Behaviors.ignore
+  end download
 
+  private def shutdown(using
+      currentPath: DownloadPath
+  ): Behavior[DownloadCommand] =
+    Behaviors.receive: (context, message) =>
+      message match
         case DownloadFinished(path, replyTo) =>
           context.log.info(s"File transfer for $path completed by sender.")
           replyTo ! RegisterFile(Paths.get(path))
@@ -162,7 +192,8 @@ object FileDownloadWorker:
                   s"Failed to delete temporary file for $fileName: ${ex.getMessage}"
                 )
           Behaviors.stopped
-  end run
+        case _ => Behaviors.ignore
+  end shutdown
 
   private def validateThen(
       fn: => Behavior[DownloadCommand]

@@ -39,9 +39,7 @@ object DistributedDataCoordinator:
       node: SelfUniqueAddress
   ): Behavior[InternalDDCommand_] = command match
     case RegisterFile(fileName, hostPort) =>
-      context.log.info(
-        s"Registering file '$fileName' from '$hostPort' in Distributed Data."
-      )
+      context.log info s"Registering file '$fileName' from '$hostPort' in Distributed Data."
       val replicatorUpdateAdapter = context
         .messageAdapter[Replicator.UpdateResponse[
           LWWMap[String, ORSet[String]]
@@ -81,9 +79,7 @@ object DistributedDataCoordinator:
       Behaviors.same
 
     case RemoveNodeFiles(removedHostPort) =>
-      context.log.info(
-        s"Removing files associated with removed node: $removedHostPort"
-      )
+      context.log info s"Removing files associated with removed node: $removedHostPort"
       val replicatorUpdateAdapter = context
         .messageAdapter[Replicator.UpdateResponse[
           LWWMap[String, ORSet[String]]
@@ -149,15 +145,11 @@ object DistributedDataCoordinator:
                   fileName -> nodesSet.elements
               replyTo ! AvailableFiles(filesMap)
             case _: Replicator.GetFailure[_] | _: Replicator.NotFound[_] =>
-              context.log.warn(
-                "Failed to retrieve available files from Distributed Data."
-              )
+              context.log warn "Failed to retrieve available files from Distributed Data."
               replyTo ! AvailableFiles(Map.empty)
             case UntypedReplicator.GetSuccess(_, _) |
                 UntypedReplicator.GetDataDeleted(_, _) =>
-              context.log.debug(
-                "Got untyped response from replicator"
-              )
+              context.log debug "Got untyped response from replicator"
               replyTo ! AvailableFiles(Map.empty)
           Behaviors.same
 
@@ -170,33 +162,25 @@ object DistributedDataCoordinator:
                 case None | _: Some[_] =>
                   replyTo ! DDProtocol.Response.NotFound(fileName)
             case Replicator.GetFailure(key) =>
-              context.log.warn(
-                s"Failed to retrieve file locations for $fileName from Distributed Data."
-              )
+              context.log warn s"Failed to retrieve file locations for $fileName from Distributed Data."
               replyTo ! DDProtocol.Response.NotFound(fileName)
             case UntypedReplicator.NotFound(_, _) |
                 UntypedReplicator.GetFailure(_, _) |
                 UntypedReplicator.GetSuccess(_, _) |
                 UntypedReplicator.GetDataDeleted(_, _) =>
-              context.log.debug(
-                "Got untyped response from replicator"
-              )
+              context.log debug "Got untyped response from replicator"
               replyTo ! DDProtocol.Response.NotFound(fileName)
           Behaviors.same
 
         case InternalKeyUpdate_(e) =>
-          context.log.debug(
-            s"Distributed Data updated for AvailableFilesKey: ${e.key}"
-          )
+          context.log debug s"Distributed Data updated for AvailableFilesKey: ${e.key}"
           Behaviors.same
 
         case InternalSubscribe_(e) =>
           e match
             case c @ Replicator.Changed(key) =>
               val data = c.get(key)
-              context.log.debug(
-                s"Distributed Data Changed for AvailableFilesKey: ${data.entries}"
-              )
+              context.log debug s"Distributed Data Changed for AvailableFilesKey: ${data.entries}"
               Behaviors.same
             case _: Replicator.Deleted[_] | _: Replicator.Changed[_] =>
               Behaviors.same
