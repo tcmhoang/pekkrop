@@ -4,7 +4,6 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, DispatcherSelector}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{FileIO, Sink}
-import org.apache.pekko.util.ByteString
 
 import java.nio.file.{Files, Path}
 import scala.concurrent.{ExecutionContextExecutor, Future}
@@ -31,25 +30,26 @@ object FileUploadWorker:
                 val fileSize = Files size filePath
                 recipientActor ! DownloadStart(fileName, fileSize, context.self)
 
-                val source = FileIO fromPath filePath
+                val source = FileIO fromPath filePath map (_.toArray)
+
                 val logger = context.log
 
                 val fileSink = Sink
-                  .foldAsync[Long, ByteString](0L):
+                  .foldAsync[Long, Array[Byte]](0L):
                     case (seqNr, chunk) =>
                       recipientActor ! DownloadChunk(
                         fileName,
-                        chunk.toVector,
+                        chunk,
                         seqNr + 1,
                         context.self,
-                        isLast = false
+                        false
                       )
                       Future.successful(seqNr + 1)
                   .mapMaterializedValue:
                     _.map: lastIdx =>
                       recipientActor ! DownloadChunk(
                         fileName,
-                        Vector.empty[Byte],
+                        Array.empty,
                         lastIdx + 1,
                         context.self,
                         true

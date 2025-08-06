@@ -58,6 +58,10 @@ object FileDownloadWorker:
         s"downloaded_files_${context.system.address.host.get}_${context.system.address.port.get}"
 
       Behaviors receiveMessagePartial:
+        case DownloadError(fileName, reason) =>
+          context.log error s"File transfer for $fileName failed: $reason"
+          Behaviors.stopped
+
         case DownloadStart(fileName, fileSize, where) =>
           lazy val startDownload =
             timers startSingleTimer (
@@ -68,14 +72,12 @@ object FileDownloadWorker:
               ),
               5.seconds
             )
-            context.log.info(
-              s"Starting download of file: $fileName (size: $fileSize bytes)"
-            )
+            context.log info s"Starting download of file: $fileName (size: $fileSize bytes)"
             val tempFilePath = Paths.get(
               s"$currentPath/$fileName.tmp"
             )
             Files.createDirectories(tempFilePath.getParent)
-            if (Files.exists(tempFilePath)) Files.delete(tempFilePath)
+            if Files.exists(tempFilePath) then Files.delete(tempFilePath)
             Files.createFile(tempFilePath)
 
             download(remoteAddress, originFileName)
@@ -118,10 +120,10 @@ object FileDownloadWorker:
                 fileName,
                 s"Temporary file for $fileName not found. Cannot write chunk."
               )
-              shutdown
+              Behaviors.same
             else
               val futureWrite =
-                Source single ByteString(chunk) runWith FileIO.toPath(
+                Source single chunk map ByteString.apply runWith FileIO.toPath(
                   tempFilePath,
                   Set(StandardOpenOption.APPEND)
                 )
@@ -150,12 +152,11 @@ object FileDownloadWorker:
                         logger error s"Failed to move temporary file for $fileName: ${ex.getMessage}"
                         self ! DownloadError(fileName, ex.getMessage)
                   end if
+
                 case Failure(ex) =>
                   logger error s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}"
                   self ! DownloadError(fileName, ex.getMessage)
-
-              if isLast then shutdown else Behaviors.same
-
+              Behaviors.same
           end downloadChunk
 
           validateThen(downloadChunk)(
@@ -163,37 +164,31 @@ object FileDownloadWorker:
             remoteAddress,
             originFileName,
             fileName
-          ) getOrElse Behaviors.ignore
-        case _ => Behaviors.ignore
-  end download
+          ) getOrElse Behaviors.same
 
-  private def shutdown(using
-      currentPath: DownloadPath
-  ): Behavior[DownloadCommand] =
-    Behaviors.receive: (context, message) =>
-      message match
         case DownloadFinished(path, replyTo) =>
-          context.log.info(s"File transfer for $path completed by sender.")
+          timers cancel timerKey
+          context.log info s"File transfer for $path completed by sender."
           replyTo ! RegisterFile(Paths.get(path))
           Behaviors.stopped
 
         case DownloadError(fileName, reason) =>
-          context.log.error(s"File transfer for $fileName failed: $reason")
+          timers cancel timerKey
+          context.log error s"File transfer for $fileName failed: $reason"
           val tempFilePath = Paths.get(
             s"$currentPath/$fileName.tmp"
           )
           if Files.exists(tempFilePath) then
             Try:
               Files.delete(tempFilePath)
-              context.log.info(s"Cleaned up temporary file for $fileName.")
+              context.log info s"Cleaned up temporary file for $fileName."
             .recover:
               case ex: Exception =>
-                context.log.warn(
-                  s"Failed to delete temporary file for $fileName: ${ex.getMessage}"
-                )
+                context.log warn s"Failed to delete temporary file for $fileName: ${ex.getMessage}"
           Behaviors.stopped
+
         case _ => Behaviors.ignore
-  end shutdown
+  end download
 
   private def validateThen(
       fn: => Behavior[DownloadCommand]

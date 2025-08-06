@@ -138,12 +138,12 @@ object DownloadProtocol:
 
   final case class DownloadChunk(
       file: String,
-      chunk: Vector[Byte],
+      chunk: Array[Byte],
       sequenceNr: Long,
       where: ActorRef[UploadProtocol.UploadCommand],
       isLast: Boolean
   ) extends DownloadCommand
-
+  
   final case class DownloadStart(
       file: String,
       fileSize: Long,

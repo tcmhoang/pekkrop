@@ -19,6 +19,7 @@ lazy val root = (project in file("."))
       "org.apache.pekko" %% "pekko-actor-typed" % PekkoVersion,
       "org.apache.pekko" %% "pekko-cluster-typed" % PekkoVersion,
       "org.apache.pekko" %% "pekko-serialization-jackson" % PekkoVersion,
+      "org.apache.pekko" %% "pekko-stream" % PekkoVersion,
       "ch.qos.logback" % "logback-classic" % "1.5.18"
     ),
     run / fork := false,
