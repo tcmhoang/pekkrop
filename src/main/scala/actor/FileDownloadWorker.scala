@@ -18,6 +18,9 @@ object FileDownloadWorker:
 
   opaque type DownloadPath = String
 
+  extension (c: DownloadError | DownloadSuccess)
+    def finished: DownloadFinished = DownloadFinished(c)
+
   def apply(
       fileName: String,
       replyTo: ActorRef[RegisterFile],
@@ -103,23 +106,24 @@ object FileDownloadWorker:
     Behaviors.receive: (context, message) =>
       message match
         case DownloadChunk(fileName, chunk, sequenceNr, where, isLast) =>
+          val self: ActorRef[DownloadFinished] = context.self.narrow
           lazy val downloadChunk: Behavior[DownloadCommand] =
             timers startSingleTimer (
               timerKey,
               DownloadError(
                 fileName,
                 s"Exceeding waiting time for download chunk $sequenceNr for $fileName from ${where.path.address.toString}, shutting down"
-              ),
+              ).finished,
               15.seconds
             )
             val tempFilePath = Paths.get(
               s"$currentPath/$fileName.tmp"
             )
             if !Files.exists(tempFilePath) then
-              context.self ! DownloadError(
+              self ! DownloadError(
                 fileName,
                 s"Temporary file for $fileName not found. Cannot write chunk."
-              )
+              ).finished
               Behaviors.same
             else
               val futureWrite =
@@ -129,7 +133,6 @@ object FileDownloadWorker:
                 )
 
               val logger = context.log
-              val self = context.self
               val port = context.system.address.port.get
 
               futureWrite.onComplete:
@@ -146,16 +149,19 @@ object FileDownloadWorker:
                         StandardCopyOption.REPLACE_EXISTING
                       )
                       logger info s"File $fileName successfully downloaded and saved to $finalPath"
-                      self ! DownloadFinished(finalPath.toString, replyTo)
+                      self ! DownloadSuccess(
+                        finalPath.toString,
+                        replyTo
+                      ).finished
                     .recover:
                       case ex: Exception =>
                         logger error s"Failed to move temporary file for $fileName: ${ex.getMessage}"
-                        self ! DownloadError(fileName, ex.getMessage)
+                        self ! DownloadError(fileName, ex.getMessage).finished
                   end if
 
                 case Failure(ex) =>
                   logger error s"Failed to write chunk $sequenceNr for $fileName: ${ex.getMessage}"
-                  self ! DownloadError(fileName, ex.getMessage)
+                  self ! DownloadError(fileName, ex.getMessage).finished
               Behaviors.same
           end downloadChunk
 
@@ -165,15 +171,24 @@ object FileDownloadWorker:
             originFileName,
             fileName
           ) getOrElse Behaviors.same
-
-        case DownloadFinished(path, replyTo) =>
+        case DownloadFinished(cmd) =>
           timers cancel timerKey
+          context.self ! cmd
+          shutdown
+        case _ => Behaviors.ignore
+  end download
+
+  private def shutdown(using
+      currentPath: DownloadPath
+  ): Behavior[DownloadCommand] =
+    Behaviors.receive: (context, message) =>
+      message match
+        case DownloadSuccess(path, replyTo) =>
           context.log info s"File transfer for $path completed by sender."
           replyTo ! RegisterFile(Paths.get(path))
           Behaviors.stopped
 
         case DownloadError(fileName, reason) =>
-          timers cancel timerKey
           context.log error s"File transfer for $fileName failed: $reason"
           val tempFilePath = Paths.get(
             s"$currentPath/$fileName.tmp"
@@ -186,9 +201,7 @@ object FileDownloadWorker:
               case ex: Exception =>
                 context.log warn s"Failed to delete temporary file for $fileName: ${ex.getMessage}"
           Behaviors.stopped
-
         case _ => Behaviors.ignore
-  end download
 
   private def validateThen(
       fn: => Behavior[DownloadCommand]

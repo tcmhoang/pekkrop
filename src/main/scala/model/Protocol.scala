@@ -143,7 +143,7 @@ object DownloadProtocol:
       where: ActorRef[UploadProtocol.UploadCommand],
       isLast: Boolean
   ) extends DownloadCommand
-  
+
   final case class DownloadStart(
       file: String,
       fileSize: Long,
@@ -151,6 +151,10 @@ object DownloadProtocol:
   ) extends DownloadCommand
 
   final case class DownloadFinished(
+      shutdownCmd: DownloadSuccess | DownloadError
+  ) extends DownloadCommand
+
+  final case class DownloadSuccess(
       file: String,
       replyTo: ActorRef[ShareProtocol.RegisterFile]
   ) extends DownloadCommand
