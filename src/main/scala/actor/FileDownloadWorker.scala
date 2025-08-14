@@ -17,9 +17,11 @@ object FileDownloadWorker:
   import model.ShareProtocol.RegisterFile
 
   opaque type DownloadPath = String
+  opaque type TimersWithKey[A] = (TimerScheduler[A], String)
 
-  extension (c: DownloadError | DownloadSuccess)
-    def finished: DownloadFinished = DownloadFinished(c)
+  private type StartTimeOut[A] =
+    TimersWithKey[A] ?=> A => FiniteDuration => Unit
+  private type CancelTimeOut[A] = TimersWithKey[A] ?=> Unit
 
   def apply(
       fileName: String,
@@ -36,7 +38,7 @@ object FileDownloadWorker:
         ),
         10.seconds
       )
-      given (TimerScheduler[DownloadCommand], String) =
+      given TimersWithKey[DownloadCommand] =
         (timers, downloadIdleTimerKey)
 
       given ActorRef[RegisterFile] = replyTo
@@ -55,8 +57,6 @@ object FileDownloadWorker:
       )
       given Materializer = Materializer(context.system)
 
-      val (timers, timerKey) = timersWithKey
-
       given currentPath: DownloadPath =
         s"downloaded_files_${context.system.address.host.get}_${context.system.address.port.get}"
 
@@ -67,14 +67,12 @@ object FileDownloadWorker:
 
         case DownloadStart(fileName, fileSize, where) =>
           lazy val startDownload =
-            timers startSingleTimer (
-              timerKey,
+            startTimeout(
               DownloadError(
                 fileName,
                 s"Exceeding waiting time to download $fileName from ${where.path.address.toString}, shutting down"
-              ),
-              5.seconds
-            )
+              )
+            )(5.seconds)
             context.log info s"Starting download of file: $fileName (size: $fileSize bytes)"
             val tempFilePath = Paths.get(
               s"$currentPath/$fileName.tmp"
@@ -96,26 +94,23 @@ object FileDownloadWorker:
   end warmingUp
 
   private def download(remoteAddress: String, originFileName: String)(using
-      timersWithKey: (TimerScheduler[DownloadCommand], String),
+      timersWithKey: TimersWithKey[DownloadCommand],
       currentPath: DownloadPath,
       mat: Materializer,
       replyTo: ActorRef[RegisterFile],
       ec: ExecutionContextExecutor
   ): Behavior[DownloadCommand] =
-    val (timers, timerKey) = timersWithKey
     Behaviors.receive: (context, message) =>
       message match
         case DownloadChunk(fileName, chunk, sequenceNr, where, isLast) =>
           val self: ActorRef[DownloadFinished] = context.self.narrow
           lazy val downloadChunk: Behavior[DownloadCommand] =
-            timers startSingleTimer (
-              timerKey,
+            startTimeout(
               DownloadError(
                 fileName,
                 s"Exceeding waiting time for download chunk $sequenceNr for $fileName from ${where.path.address.toString}, shutting down"
-              ).finished,
-              15.seconds
-            )
+              ).finished
+            )(15.seconds)
             val tempFilePath = Paths.get(
               s"$currentPath/$fileName.tmp"
             )
@@ -172,7 +167,7 @@ object FileDownloadWorker:
             fileName
           ) getOrElse Behaviors.same
         case DownloadFinished(cmd) =>
-          timers cancel timerKey
+          cancelTimeout
           context.self ! cmd
           shutdown
         case _ => Behaviors.ignore
@@ -215,3 +210,16 @@ object FileDownloadWorker:
     if remoteRef.path.address.toString == address && fileName == originalFileName
     then Try(fn).toOption
     else None
+
+  private inline def startTimeout: StartTimeOut[DownloadCommand] =
+    val (timer, key) = summon[TimersWithKey[DownloadCommand]]
+    cmd => timeout => timer startSingleTimer (key, cmd, timeout)
+
+  private inline def cancelTimeout: CancelTimeOut[DownloadCommand] =
+    val (timer, key) = summon[TimersWithKey[DownloadCommand]]
+    timer cancel key
+
+  extension (c: DownloadError | DownloadSuccess)
+    private def finished: DownloadFinished = DownloadFinished(c)
+
+end FileDownloadWorker
